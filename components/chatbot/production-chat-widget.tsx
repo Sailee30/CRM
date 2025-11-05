@@ -50,6 +50,7 @@ export default function ProductionChatWidget({
   const [isLoading, setIsLoading] = useState(false)
   const [sessionId, setSessionId] = useState<string>("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Initialize chat session
   useEffect(() => {
@@ -75,6 +76,13 @@ export default function ProductionChatWidget({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
+
+    useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 100) + 'px'
+    }
+  }, [input])
 
   const handleSendMessage = async () => {
     if (!input.trim() || !sessionId) return
@@ -189,11 +197,11 @@ export default function ProductionChatWidget({
   return (
     <Card
       className={cn(
-        "fixed bottom-4 right-4 z-50 w-80 shadow-xl transition-all duration-300 ease-in-out",
-        isMinimized ? "h-14" : "h-96",
+        "fixed bottom-4 right-4 z-50 shadow-xl transition-all duration-300 ease-in-out flex flex-col",
+        isMinimized ? "h-14 w-80" : "h-[600px] w-96",
       )}
     >
-      <CardHeader className="p-3 flex flex-row items-center justify-between space-y-0 bg-primary text-primary-foreground rounded-t-lg">
+      <CardHeader className="p-3 flex flex-row items-center justify-between space-y-0 bg-primary text-primary-foreground rounded-t-lg flex-shrink-0">
         <div className="flex items-center gap-2">
           <Avatar className="h-8 w-8 bg-primary-foreground/10">
             <AvatarImage src="/placeholder.svg?height=32&width=32" alt="Chatbot" />
@@ -230,7 +238,7 @@ export default function ProductionChatWidget({
 
       {!isMinimized && (
         <>
-          <CardContent className="p-3 overflow-y-auto h-[calc(100%-7rem)]">
+          <CardContent className="p-3 overflow-y-auto flex-1 min-h-0">
             <div className="space-y-4">
               {messages.map((message) => (
                 <div key={message.id}>
@@ -318,20 +326,23 @@ export default function ProductionChatWidget({
             </div>
           </CardContent>
 
-          <CardFooter className="p-3 pt-0">
-            <div className="relative w-full">
-              <Input
+          <CardFooter className="p-3 pt-0 flex-shrink-0 border-t">
+            <div className="flex w-full gap-2 items-end">
+              <textarea
+                ref={textareaRef}
                 placeholder="Ask me anything..."
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="pr-10"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
                 disabled={isLoading}
                 aria-label="Chat input"
+                rows={1}
+                style={{ overflow: 'hidden' }}
               />
               <Button
                 size="icon"
-                className="absolute right-0 top-0 h-full rounded-l-none"
+                className="rounded-lg flex-shrink-0"
                 onClick={handleSendMessage}
                 disabled={isLoading || !input.trim()}
                 aria-label="Send message"

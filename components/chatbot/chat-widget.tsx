@@ -159,8 +159,8 @@ export default function ChatWidget() {
   return (
     <Card
       className={cn(
-        "fixed bottom-4 right-4 z-50 w-80 shadow-xl transition-all duration-300 ease-in-out",
-        isMinimized ? "h-14" : "h-96",
+        "fixed bottom-4 right-4 z-50 shadow-xl transition-all duration-300 ease-in-out",
+        isMinimized ? "h-14 w-80" : "h-[750px] w-[900px]",
       )}
     >
       <CardHeader className="p-3 flex flex-row items-center justify-between space-y-0 bg-primary text-primary-foreground rounded-t-lg">
@@ -195,7 +195,7 @@ export default function ChatWidget() {
 
       {!isMinimized && (
         <>
-          <CardContent className="p-3 overflow-y-auto h-[calc(100%-7rem)]">
+          <CardContent className="p-4 overflow-y-auto h-[calc(100%-8rem)]">
             <div className="space-y-4">
               {messages.map((message) => (
                 <div
@@ -248,7 +248,7 @@ export default function ChatWidget() {
             </div>
           </CardContent>
 
-          <CardFooter className="p-3 pt-0">
+          <CardFooter className="p-4 pt-2">
             <div className="relative w-full">
               <Input
                 placeholder="Type a message..."
