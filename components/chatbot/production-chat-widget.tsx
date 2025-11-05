@@ -8,6 +8,9 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Bot, X, Send, Minimize2, Maximize2, MessageSquare, CheckCircle2, LinkIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useCRUDData } from '@/hooks/useCRUDData'
+import { isCRUDCommand, executeCRUDCommand, executeCRUDCommandWithNLP } from '@/lib/chat/chat-handler'
+import { classifier } from '@/lib/nlp/intent-classifier'
 
 interface Message {
   id: string
@@ -15,6 +18,8 @@ interface Message {
   role: "user" | "assistant"
   timestamp: Date
   intent?: string
+  confidence?: number     
+  cluster?: number    
   actions?: Array<{ type: string; label: string; params?: Record<string, unknown> }>
   kbArticles?: Array<{ id: string; title: string }>
 }
@@ -49,6 +54,7 @@ export default function ProductionChatWidget({
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [sessionId, setSessionId] = useState<string>("")
+  const crud = useCRUDData()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -84,74 +90,83 @@ export default function ProductionChatWidget({
     }
   }, [input])
 
-  const handleSendMessage = async () => {
-    if (!input.trim() || !sessionId) return
+const handleSendMessage = async () => {
+  if (!input.trim() || !sessionId) return
 
-    // Add user message
-    const userMessage: Message = {
-      id: `user-${Date.now()}`,
-      content: input,
-      role: "user",
+  const userMessage: Message = {
+    id: `user-${Date.now()}`,
+    content: input,
+    role: "user",
+    timestamp: new Date(),
+  }
+
+  setMessages((prev) => [...prev, userMessage])
+  setInput("")
+  setIsLoading(true)
+
+  try {
+    // ✅ CHECK CRUD FIRST
+    if (isCRUDCommand(input)) {
+      console.log('[CRUD] Processing:', input)
+      const prediction = classifier.predict(input)
+      const crudResult = executeCRUDCommandWithNLP(input, prediction, crud)
+      
+      const assistantMessage: Message = {
+        id: `assistant-${Date.now()}`,
+        content: crudResult.response,
+        role: "assistant",
+        timestamp: new Date(),
+        intent: 'crud',
+      }
+      
+      setMessages((prev) => [...prev, assistantMessage])
+      setIsLoading(false)
+      return
+    }
+
+    // ✅ NOT CRUD - CALL API
+    console.log('[NLP] API call:', input)
+    const response = await fetch("/api/chat/message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: input,
+        sessionId,
+        userId,
+        isAuthenticated,
+      }),
+    })
+
+    if (!response.ok) throw new Error('API error')
+
+    const data = await response.json()
+
+    const assistantMessage: Message = {
+      id: data.id,
+      content: data.content,
+      role: "assistant",
+      timestamp: new Date(),
+      intent: data.intent,
+      confidence: data.confidence ?? 0,
+      cluster: data.cluster,
+      actions: data.actions,
+      kbArticles: data.kbArticles,
+    }
+
+    setMessages((prev) => [...prev, assistantMessage])
+  } catch (error) {
+    console.error('Error:', error)
+    const errorMessage: Message = {
+      id: `error-${Date.now()}`,
+      content: 'Sorry, I encountered an error. Please try again.',
+      role: "assistant",
       timestamp: new Date(),
     }
-
-    setMessages((prev) => [...prev, userMessage])
-    setInput("")
-    setIsLoading(true)
-
-    try {
-      // Send to chat API with NLP processing
-      const response = await fetch("/api/chat/message", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: input,
-          sessionId,
-          userId,
-          isAuthenticated,
-        }),
-      })
-
-      if (!response.ok) {
-        console.error("[v0] Chat API error response:", response.status, response.statusText)
-        throw new Error(`Chat API returned ${response.status}: ${response.statusText}`)
-      }
-
-      const contentType = response.headers.get("content-type")
-      if (!contentType || !contentType.includes("application/json")) {
-        console.error("[v0] Invalid response content type:", contentType)
-        const text = await response.text()
-        console.error("[v0] Response body:", text.substring(0, 200))
-        throw new Error(`Invalid response format. Expected JSON, got ${contentType}`)
-      }
-
-      const data = await response.json()
-
-      // Add assistant response with actions
-      const assistantMessage: Message = {
-        id: data.id,
-        content: data.content,
-        role: "assistant",
-        timestamp: new Date(),
-        intent: data.intent,
-        actions: data.actions,
-        kbArticles: data.kbArticles,
-      }
-
-      setMessages((prev) => [...prev, assistantMessage])
-    } catch (error) {
-      console.error("[v0] Error sending message:", error)
-      const errorMessage: Message = {
-        id: `error-${Date.now()}`,
-        content: `Sorry, I encountered an error: ${error instanceof Error ? error.message : "Unknown error"}. Please try again or contact support.`,
-        role: "assistant",
-        timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, errorMessage])
-    } finally {
-      setIsLoading(false)
-    }
+    setMessages((prev) => [...prev, errorMessage])
+  } finally {
+    setIsLoading(false)
   }
+}
 
   const handleAction = (action: ChatAction) => {
     console.log("[v0] Executing action:", action)
@@ -260,16 +275,18 @@ export default function ProductionChatWidget({
                         </>
                       )}
                     </Avatar>
-                    <div
-                      className={cn(
-                        "rounded-lg p-2 text-sm break-words",
-                        message.role === "assistant"
-                          ? "bg-muted text-muted-foreground"
-                          : "bg-primary text-primary-foreground",
-                      )}
-                    >
-                      {message.content}
-                    </div>
+                    <div className="flex flex-col gap-1">
+                      <div
+                        className={cn(
+                          "rounded-lg p-3 text-sm break-words",
+                          message.role === "assistant"
+                            ? "bg-muted"
+                            : "bg-primary text-primary-foreground",
+                        )}
+                      >
+                        {message.content}
+                      </div>
+                  </div>
                   </div>
 
                   {message.actions && message.actions.length > 0 && (

@@ -95,4 +95,37 @@ export const trainingData: TrainingData[] = [
   { phrase: "much appreciated", intent: "gratitude" },
   { phrase: "thanks a lot", intent: "gratitude" },
   { phrase: "thank you so much", intent: "gratitude" },
+
+  // CRUD Operations - Frontend Demo
+  { phrase: "list contacts", intent: "crud_list_contacts" },
+  { phrase: "show contacts", intent: "crud_list_contacts" },
+  { phrase: "display contacts", intent: "crud_list_contacts" },
+  { phrase: "all contacts", intent: "crud_list_contacts" },
+  
+  { phrase: "add contact", intent: "crud_add_contact" },
+  { phrase: "create contact", intent: "crud_add_contact" },
+  { phrase: "new contact", intent: "crud_add_contact" },
+  { phrase: "add a contact", intent: "crud_add_contact" },
+  
+  { phrase: "delete contact", intent: "crud_delete_contact" },
+  { phrase: "remove contact", intent: "crud_delete_contact" },
+  { phrase: "delete a contact", intent: "crud_delete_contact" },
+  
+  { phrase: "edit contact", intent: "crud_edit_contact" },
+  { phrase: "update contact", intent: "crud_edit_contact" },
+  { phrase: "modify contact", intent: "crud_edit_contact" },
+  
+  { phrase: "list sales", intent: "crud_list_sales" },
+  { phrase: "show sales", intent: "crud_list_sales" },
+  { phrase: "display sales", intent: "crud_list_sales" },
+  
+  { phrase: "add sale", intent: "crud_add_sale" },
+  { phrase: "create sale", intent: "crud_add_sale" },
+  { phrase: "new sale", intent: "crud_add_sale" },
+  
+  { phrase: "delete sale", intent: "crud_delete_sale" },
+  { phrase: "remove sale", intent: "crud_delete_sale" },
+  
+  { phrase: "edit sale", intent: "crud_edit_sale" },
+  { phrase: "update sale", intent: "crud_edit_sale" },
 ]

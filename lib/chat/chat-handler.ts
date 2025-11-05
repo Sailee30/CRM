@@ -5,11 +5,10 @@ import { classifier } from '@/lib/nlp/intent-classifier'
 import { trainingData } from '@/lib/nlp/training-data'
 import { aimlProcessor } from '@/lib/aiml/aiml-processor'
 import { sessionManager } from '@/lib/chat/session-manager'
-import { KMeansClusterer } from '@/lib/algorithms/kmeans'
-import { getTextVector } from '@/lib/algorithms/word-embedding'
 import { preprocessText } from '@/lib/utils/text-preprocessing'
 import { searchKnowledgeBase } from '@/lib/nlp/knowledge-base'
 import type { IntentPrediction } from '@/lib/nlp/intent-classifier'
+
 /**
  * Initialize chatbot - train classifier once
  * Call this in your API route or app startup
@@ -94,40 +93,28 @@ async function clusterMessageIntent(
   prediction: IntentPrediction
 ): Promise<number> {
   try {
-    // Preprocess text
-    const tokens = preprocessText(userMessage)
-    
-    // Convert to vector
-    const messageVector = getTextVector(tokens)
-    
-    // Get all messages from all sessions for clustering context
-    const allSessions = sessionManager.getAllSessions()
-    const userMessages = allSessions
-      .flatMap(s => s.messages)
-      .filter(m => m.role === 'user' && m.intent === prediction.intent)
-      .slice(0, 20) // Limit to 20 messages for performance
-
-    // If not enough messages, skip clustering
-    if (userMessages.length < 3) {
-      return 0
+    // Simple clustering based on intent
+    // Just group by intent type, no vectors needed
+    const intentClusters: Record<string, number> = {
+      'update_contact': 0,
+      'report_generation': 1,
+      'create_ticket': 2,
+      'get_customer_summary': 3,
+      'billing_query': 4,
+      'data_sync': 5,
+      'greeting': 6,
+      'gratitude': 7,
+      'crud_list_contacts': 8,
+      'crud_add_contact': 8,
+      'crud_delete_contact': 8,
+      'crud_edit_contact': 8,
+      'crud_list_sales': 9,
+      'crud_add_sale': 9,
+      'crud_delete_sale': 9,
+      'crud_edit_sale': 9,
     }
 
-    // Convert messages to vectors
-    const messageVectors = userMessages.map(m => {
-      const tokens = preprocessText(m.content)
-      return getTextVector(tokens)
-    })
-
-    // Apply K-means clustering
-    const k = Math.min(3, Math.ceil(userMessages.length / 5)) // Dynamic k
-    const clusterer = new KMeansClusterer(k, 50, 0.001)
-    const result = clusterer.fit(messageVectors)
-
-    // Predict cluster for current message
-    const cluster = clusterer.predict(messageVector, result.centroids)
-    
-    console.log(`Message clustered into group: ${cluster}`)
-    return cluster
+    return intentClusters[prediction.intent] || 0
   } catch (error) {
     console.error('Clustering error:', error)
     return 0
@@ -180,56 +167,246 @@ export function getChatAnalytics(): {
 }
 
 /**
- * Get intent clustering insights
+ * Check if user message is a CRUD command
  */
-export function getIntentClusteringInsights(): {
-  intentPatterns: Record<string, { vectorRepresentation: number[]; frequency: number }>
-  clusterSummary: string
-} {
-  const sessions = sessionManager.getAllSessions()
-  const intentMessages: Record<string, string[]> = {}
+export function isCRUDCommand(userMessage: string): boolean {
+  const lower = userMessage.toLowerCase().trim()
+  
+  const crudKeywords = [
+    'add contact',
+    'delete contact',
+    'edit contact',
+    'list contact',
+    'show contact',
+    'display contact',
+    'add sale',
+    'delete sale',
+    'edit sale',
+    'list sale',
+    'show sale',
+    'display sale',
+  ]
+  
+  return crudKeywords.some(kw => lower.includes(kw))
+}
+/**
+ * Execute CRUD operation and return response
+ * This function works with your existing data structure
+ */
+export function executeCRUDCommand(
+  userMessage: string,
+  crudData: any
+): { response: string; success: boolean } {
+  const lower = userMessage.toLowerCase().trim()
+  const data = crudData.data
+  const setData = crudData.setData
+  const setChangeCount = crudData.setChangeCount
 
-  // Group messages by intent
-  sessions.forEach(session => {
-    session.messages.forEach(msg => {
-      if (msg.intent && msg.role === 'user') {
-        if (!intentMessages[msg.intent]) {
-          intentMessages[msg.intent] = []
-        }
-        intentMessages[msg.intent].push(msg.content)
-      }
-    })
-  })
+  // ===== LIST CONTACTS =====
+  if (lower.includes('list contact') || lower.includes('show contact')) {
+    if (data.contacts.length === 0) {
+      return { response: 'No contacts found', success: true }
+    }
+    const list = data.contacts
+      .map((c: any) => `• ${c.name} (${c.email})`)
+      .join('\n')
+    return {
+      response: `Contacts (${data.contacts.length}):\n${list}`,
+      success: true,
+    }
+  }
 
-  // Create vector representation for each intent
-  const intentPatterns: Record<string, { vectorRepresentation: number[]; frequency: number }> = {}
+  // ===== ADD CONTACT =====
+  if (lower.includes('add contact')) {
+    const nameMatch = userMessage.match(/add contact\s+(.+?)(?:\s*$|\s+with)/i)
+    const name = nameMatch ? nameMatch[1].trim() : 'New Contact'
+    
+    setData((prev: any) => ({
+      ...prev,
+      contacts: [
+        ...prev.contacts,
+        { id: Date.now(), name, email: '', phone: '' },
+      ],
+    }))
+    setChangeCount((c: number) => c + 1)
+    return {
+      response: `Added contact: ${name}`,
+      success: true,
+    }
+  }
 
-  Object.entries(intentMessages).forEach(([intent, messages]) => {
-    if (messages.length > 0) {
-      // Average vector for all messages of this intent
-      const vectors = messages.map(m => {
-        const tokens = preprocessText(m)
-        return getTextVector(tokens)
-      })
-
-      const avgVector = Array(50).fill(0)
-      vectors.forEach(vec => {
-        for (let i = 0; i < 50; i++) {
-          avgVector[i] += vec[i] / vectors.length
-        }
-      })
-
-      intentPatterns[intent] = {
-        vectorRepresentation: avgVector,
-        frequency: messages.length,
+  // ===== DELETE CONTACT =====
+  if (lower.includes('delete contact')) {
+    const nameMatch = userMessage.match(/delete contact\s+(.+?)(?:\s*$)/i)
+    const searchName = nameMatch ? nameMatch[1].toLowerCase() : ''
+    
+    const contact = data.contacts.find((c: any) =>
+      c.name.toLowerCase().includes(searchName)
+    )
+    
+    if (contact) {
+      setData((prev: any) => ({
+        ...prev,
+        contacts: prev.contacts.filter((c: any) => c.id !== contact.id),
+      }))
+      setChangeCount((c: number) => c + 1)
+      return {
+        response: ` Deleted: ${contact.name}\n⚠️ Frontend only - refreshing will restore it!`,
+        success: true,
       }
     }
-  })
+    return {
+      response: `Contact "${searchName}" not found`,
+      success: false,
+    }
+  }
 
-  const clusterSummary = `Identified ${Object.keys(intentPatterns).length} intent patterns from ${Object.values(intentPatterns).reduce((sum, p) => sum + p.frequency, 0)} user messages`
+  // ===== EDIT CONTACT =====
+  if (lower.includes('edit contact')) {
+    const fromToMatch = userMessage.match(/edit contact\s+(.+?)\s+to\s+(.+?)(?:\s*$)/i)
+    if (fromToMatch) {
+      const oldName = fromToMatch[1].trim().toLowerCase()
+      const newName = fromToMatch[2].trim()
+      
+      const contact = data.contacts.find((c: any) =>
+        c.name.toLowerCase().includes(oldName)
+      )
+      
+      if (contact) {
+        setData((prev: any) => ({
+          ...prev,
+          contacts: prev.contacts.map((c: any) =>
+            c.id === contact.id ? { ...c, name: newName } : c
+          ),
+        }))
+        setChangeCount((c: number) => c + 1)
+        return {
+          response: `Updated: ${contact.name} → ${newName}`,
+          success: true,
+        }
+      }
+      return {
+        response: `Contact "${oldName}" not found`,
+        success: false,
+      }
+    }
+  }
+
+  // ===== LIST SALES =====
+  if (lower.includes('list sale') || lower.includes('show sale')) {
+    if (data.sales.length === 0) {
+      return { response: ' No sales found', success: true }
+    }
+    const list = data.sales
+      .map((s: any) => `• ${s.product} - $${s.amount} (${s.customer})`)
+      .join('\n')
+    return {
+      response: `Sales (${data.sales.length}):\n${list}`,
+      success: true,
+    }
+  }
+
+  // ===== ADD SALE =====
+  if (lower.includes('add sale')) {
+    const productMatch = userMessage.match(/add sale\s+(.+?)(?:\s+-\s+\$?(\d+)|$)/i)
+    const product = productMatch ? productMatch[1].trim() : 'New Sale'
+    const amount = productMatch ? parseInt(productMatch[2] || '0') : 0
+    
+    setData((prev: any) => ({
+      ...prev,
+      sales: [
+        ...prev.sales,
+        { id: Date.now(), product, amount, customer: '', date: new Date().toISOString().split('T')[0] },
+      ],
+    }))
+    setChangeCount((c: number) => c + 1)
+    return {
+      response: `Added sale: ${product} ($${amount})`,
+      success: true,
+    }
+  }
+
+  // ===== DELETE SALE =====
+  if (lower.includes('delete sale')) {
+    const productMatch = userMessage.match(/delete sale\s+(.+?)(?:\s*$)/i)
+    const searchProduct = productMatch ? productMatch[1].toLowerCase() : ''
+    
+    const sale = data.sales.find((s: any) =>
+      s.product.toLowerCase().includes(searchProduct)
+    )
+    
+    if (sale) {
+      setData((prev: any) => ({
+        ...prev,
+        sales: prev.sales.filter((s: any) => s.id !== sale.id),
+      }))
+      setChangeCount((c: number) => c + 1)
+      return {
+        response: `Deleted: ${sale.product}\n⚠️ Frontend only - refreshing will restore it!`,
+        success: true,
+      }
+    }
+    return {
+      response: `Sale "${searchProduct}" not found`,
+      success: false,
+    }
+  }
+
+  // ===== EDIT SALE =====
+  if (lower.includes('edit sale')) {
+    const fromToMatch = userMessage.match(/edit sale\s+(.+?)\s+to\s+\$?(\d+)(?:\s*$)/i)
+    if (fromToMatch) {
+      const productName = fromToMatch[1].trim().toLowerCase()
+      const newAmount = parseInt(fromToMatch[2])
+      
+      const sale = data.sales.find((s: any) =>
+        s.product.toLowerCase().includes(productName)
+      )
+      
+      if (sale && !isNaN(newAmount)) {
+        setData((prev: any) => ({
+          ...prev,
+          sales: prev.sales.map((s: any) =>
+            s.id === sale.id ? { ...s, amount: newAmount } : s
+          ),
+        }))
+        setChangeCount((c: number) => c + 1)
+        return {
+          response: `Updated: ${sale.product} → $${newAmount}`,
+          success: true,
+        }
+      }
+    }
+  }
 
   return {
-    intentPatterns,
-    clusterSummary,
+    response: 'Command not recognized',
+    success: false,
+  }
+}
+/**
+ * Execute CRUD with NLP confidence checking
+ */
+export function executeCRUDCommandWithNLP(
+  userMessage: string,
+  prediction: IntentPrediction,
+  crudData: any
+): { response: string; success: boolean } {
+  
+  // If NLP detected a CRUD intent, use it
+  if (prediction.intent.startsWith('crud_')) {
+    console.log(`[NLP] CRUD intent detected: ${prediction.intent}, confidence: ${prediction.confidence}`)
+    
+    // Show confidence level
+    const confidenceMsg = prediction.confidence > 0.8 
+      ? '' 
+      : `\n(Confidence: ${Math.round(prediction.confidence * 100)}%)`
+    
+    return executeCRUDCommand(userMessage, crudData)
+  }
+
+  return {
+    response: 'Not recognized as CRUD command',
+    success: false,
   }
 }

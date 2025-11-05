@@ -54,3 +54,16 @@ export function updateDocumentFrequency(tokens: string[]): void {
 export function getVocabulary(): string[] {
   return Array.from(docFrequency.documentFrequency.keys())
 }
+export function initializeVocabulary(texts: string[]): void {
+  texts.forEach(text => {
+    const tokens = text.toLowerCase().split(/\s+/)
+    updateDocumentFrequency(tokens)
+  })
+  
+  console.log(`[Vectorizer] Initialized with ${docFrequency.totalDocuments} documents`)
+  console.log(`[Vectorizer] Vocabulary size: ${docFrequency.documentFrequency.size}`)
+}
+
+export function getDocumentFrequency(): DocumentFrequency {
+  return { ...docFrequency }
+}

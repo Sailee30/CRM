@@ -11,6 +11,9 @@ import { Bot, X, Send, Minimize2, Maximize2, MessageSquare } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { generateText } from "ai"
 import { openai } from "@ai-sdk/openai"
+import { classifier } from "@/lib/nlp/intent-classifier"
+import { trainingData } from "@/lib/nlp/training-data"
+import { searchKnowledgeBase } from "@/lib/nlp/knowledge-base"
 
 // Sample CRM data for the chatbot to use
 const crmData = {
@@ -67,10 +70,11 @@ export default function ChatWidget() {
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // Scroll to bottom of messages when new messages are added
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+    // Initialize classifier on component mount
+    classifier.train(trainingData)
+    console.log('[ChatWidget] Classifier trained')
+  }, [])
 
   const handleSendMessage = async () => {
     if (!input.trim()) return
@@ -88,52 +92,50 @@ export default function ChatWidget() {
     setIsLoading(true)
 
     try {
-      // Create context from previous messages
-      const conversationContext = messages
-        .slice(-5)
-        .map((msg) => `${msg.role === "user" ? "User" : "Assistant"}: ${msg.content}`)
-        .join("\n")
+  // Get intent classification
+  const prediction = classifier.predict(input)
+  console.log('[ChatWidget] Intent:', prediction.intent, 'Confidence:', prediction.confidence)
 
-      // Create a system prompt with CRM knowledge
-      const systemPrompt = `
-        You are a helpful CRM assistant for CRMaster. Answer questions based on the following CRM data:
-        
-        PRODUCTS:
-        ${crmData.products.map((p) => `- ${p.name}: ${p.description} (${p.price})`).join("\n")}
-        
-        FAQ:
-        ${crmData.faq.map((f) => `Q: ${f.question}\nA: ${f.answer}`).join("\n\n")}
-        
-        If you don't know the answer, politely say so and offer to connect the user with a human agent.
-        Keep responses concise, professional, and helpful. Use a friendly tone.
-      `
+  // Search knowledge base for relevant articles
+  const kbArticles = searchKnowledgeBase(input)
 
-      // Generate response using AI SDK
-      const { text } = await generateText({
-        model: openai("gpt-3.5-turbo"),
-        prompt: input,
-        system: systemPrompt,
-      })
+  // Call backend API instead of OpenAI directly
+  const response = await fetch("/api/chat/message", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      content: input,
+      sessionId: `session-${Date.now()}`,
+      userId: "anonymous",
+      isAuthenticated: false,
+    }),
+  })
 
-      // Add assistant response
-      const assistantMessage: Message = {
-        id: `assistant-${Date.now()}`,
-        content: text,
-        role: "assistant",
-        timestamp: new Date(),
-      }
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status}`)
+  }
 
-      setMessages((prev) => [...prev, assistantMessage])
-    } catch (error) {
-      // Handle error
-      const errorMessage: Message = {
-        id: `error-${Date.now()}`,
-        content: "I'm sorry, I encountered an error. Please try again or contact our support team.",
-        role: "assistant",
-        timestamp: new Date(),
-      }
+  const data = await response.json()
+
+  // Add assistant response
+  const assistantMessage: Message = {
+    id: data.id,
+    content: data.content,
+    role: "assistant",
+    timestamp: new Date(),
+  }
+
+  setMessages((prev) => [...prev, assistantMessage])
+  }catch (error) {
+  console.error('[ChatWidget] Error:', error)
+  const errorMessage: Message = {
+    id: `error-${Date.now()}`,
+    content: `I encountered an error: ${error instanceof Error ? error.message : "Unknown error"}. Please try again.`,
+    role: "assistant",
+    timestamp: new Date(),
+  }
       setMessages((prev) => [...prev, errorMessage])
-    } finally {
+    }finally {
       setIsLoading(false)
     }
   }

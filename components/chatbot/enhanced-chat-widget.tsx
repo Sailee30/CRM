@@ -9,8 +9,8 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Bot, X, Send, Minimize2, Maximize2, MessageSquare, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { generateText } from "ai"
-import { openai } from "@ai-sdk/openai"
+//import { generateText } from "ai"
+//import { openai } from "@ai-sdk/openai"
 import { VectorStore, createSimpleEmbedding } from "@/lib/ml/vector-search"
 
 const vectorStore = new VectorStore()
@@ -147,11 +147,24 @@ Guidelines:
 - Provide actionable recommendations when possible
       `
 
-      const { text } = await generateText({
-        model: openai("gpt-3.5-turbo"),
-        prompt: input,
-        system: systemPrompt,
-      })
+      // Call backend API instead of OpenAI directly
+const response = await fetch("/api/chat/message", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    content: input,
+    sessionId: `session-${Date.now()}`,
+    userId: "anonymous",
+    isAuthenticated: false,
+  }),
+})
+
+if (!response.ok) {
+  throw new Error(`API error: ${response.status}`)
+}
+
+const data = await response.json()
+const text = data.content
 
       const assistantMessage: Message = {
         id: `assistant-${Date.now()}`,

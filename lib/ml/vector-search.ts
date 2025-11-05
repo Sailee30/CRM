@@ -6,22 +6,52 @@ export interface VectorEntry {
   metadata?: Record<string, any>
 }
 
-// Simple embedding function (can be replaced with actual embeddings)
-export function createSimpleEmbedding(text: string): number[] {
-  const words = text.toLowerCase().split(/\s+/)
-  const embedding = Array(100).fill(0)
+import { calculateTFIDF, updateDocumentFrequency } from '@/lib/nlp/vectorizer'
+import { preprocessText } from '@/lib/utils/text-preprocessing'
 
-  for (const word of words) {
-    let hash = 0
-    for (let i = 0; i < word.length; i++) {
-      hash = (hash << 5) - hash + word.charCodeAt(i)
-      hash |= 0
+export function createSimpleEmbedding(text: string, dimension = 100): number[] {
+  // Preprocess text first
+  const tokens = preprocessText(text)
+  
+  // Update document frequency for TF-IDF calculation
+  updateDocumentFrequency(tokens)
+  
+  // Get vocabulary
+  const vocabulary = Array.from(new Set(tokens)) // Get unique tokens
+  
+  // If using TF-IDF (better approach)
+  // For now, use simpler but improved approach: normalized term frequency
+  const embedding = Array(dimension).fill(0)
+  
+  if (tokens.length === 0) return embedding
+  
+  // Count term frequencies
+  const termFreq = new Map<string, number>()
+  tokens.forEach(token => {
+    termFreq.set(token, (termFreq.get(token) || 0) + 1)
+  })
+  
+  // Create hash-based embedding with better distribution
+  for (const [term, freq] of termFreq.entries()) {
+    // Better hash function (DJB2)
+    let hash = 5381
+    for (let i = 0; i < term.length; i++) {
+      hash = ((hash << 5) + hash) + term.charCodeAt(i)
     }
-
-    const index = Math.abs(hash) % 100
-    embedding[index] += 1 / words.length
+    
+    const index = Math.abs(hash % dimension)  // Distribute across dimension
+    const normalizedFreq = freq / tokens.length
+    embedding[index] += normalizedFreq
   }
-
+  
+  // Normalize embedding to unit length
+  const norm = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0))
+  if (norm > 0) {
+    for (let i = 0; i < embedding.length; i++) {
+      embedding[i] /= norm
+    }
+  }
+  
   return embedding
 }
 
@@ -41,9 +71,13 @@ export function cosineSimilarity(vec1: number[], vec2: number[]): number {
   return denominator === 0 ? 0 : dotProduct / denominator
 }
 
-// Vector store for semantic search
 export class VectorStore {
   private entries: Map<string, VectorEntry> = new Map()
+  private dimension: number = 100  // Add this
+  
+  constructor(dimension = 100) {  // Add this
+    this.dimension = dimension
+  }
 
   add(entry: VectorEntry): void {
     this.entries.set(entry.id, entry)
@@ -69,9 +103,15 @@ export class VectorStore {
       .map(([id]) => this.entries.get(id)!)
   }
 
-  searchByText(query: string, topK = 5): VectorEntry[] {
-    const queryEmbedding = createSimpleEmbedding(query)
-    return this.search(queryEmbedding, topK)
+  searchByText(query: string, topK = 5, minSimilarity = 0.2): VectorEntry[] {
+    const queryEmbedding = createSimpleEmbedding(query, this.dimension)
+    const results = this.search(queryEmbedding, topK)
+    
+    // Filter by minimum similarity threshold
+    return results.filter(entry => {
+      const similarity = cosineSimilarity(queryEmbedding, entry.embedding)
+      return similarity >= minSimilarity
+    })
   }
 
   getAll(): VectorEntry[] {

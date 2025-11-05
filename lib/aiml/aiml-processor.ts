@@ -23,6 +23,16 @@ private initializeTemplates(): void {
       confidence: 0.9,
     },
     {
+      pattern: 'UPDATE*FIELD*SPECIFIC',
+      template: 'I can help you update that field. Go to the contact details, find the field, and make your changes.',
+      confidence: 0.85,
+    },
+    {
+      pattern: 'UPDATE*EMAIL',
+      template: 'To update the email address, go to Contacts, select the contact, click Edit, update the email field, and click Save.',
+      confidence: 0.9,
+    },
+    {
       pattern: 'SAVE*BUTTON*NOT*WORKING',
       template: 'The save button issue might be caused by: 1) Poor internet connection 2) Browser cache issues 3) Insufficient permissions. Try refreshing your page.',
       confidence: 0.85,
@@ -112,6 +122,71 @@ private initializeTemplates(): void {
       },
     ])
 
+    // ===== CRUD OPERATIONS - FRONTEND DEMO =====
+    this.templates.set('crud_list_contacts', [
+      {
+        pattern: 'LIST*CONTACTS',
+        template: 'Here are all your contacts stored locally in this browser.',
+        confidence: 0.95,
+      },
+    ])
+
+    this.templates.set('crud_add_contact', [
+      {
+        pattern: 'ADD*CONTACT',
+        template: 'I\'ve added a new contact. You can now edit their details.',
+        confidence: 0.95,
+      },
+    ])
+
+    this.templates.set('crud_delete_contact', [
+      {
+        pattern: 'DELETE*CONTACT',
+        template: 'Contact deleted from your local storage. ⚠️ Note: This is frontend-only, so refreshing the page will restore it.',
+        confidence: 0.95,
+      },
+    ])
+
+    this.templates.set('crud_edit_contact', [
+      {
+        pattern: 'EDIT*CONTACT',
+        template: 'Contact has been updated successfully.',
+        confidence: 0.95,
+      },
+    ])
+
+    this.templates.set('crud_list_sales', [
+      {
+        pattern: 'LIST*SALES',
+        template: 'Here are all your sales records stored locally in this browser.',
+        confidence: 0.95,
+      },
+    ])
+
+    this.templates.set('crud_add_sale', [
+      {
+        pattern: 'ADD*SALE',
+        template: 'New sale record created successfully.',
+        confidence: 0.95,
+      },
+    ])
+
+    this.templates.set('crud_delete_sale', [
+      {
+        pattern: 'DELETE*SALE',
+        template: 'Sale record deleted. ⚠️ Frontend only - will return if you refresh.',
+        confidence: 0.95,
+      },
+    ])
+
+    this.templates.set('crud_edit_sale', [
+      {
+        pattern: 'EDIT*SALE',
+        template: 'Sale record has been updated.',
+        confidence: 0.95,
+      },
+    ])
+
     this.templates.set('fallback', [
       {
         pattern: '*',
@@ -121,16 +196,37 @@ private initializeTemplates(): void {
     ])
   }
 
-public generateResponse(prediction: { intent: string; confidence: number }, userMessage: string = ""): string {
-    const templates = this.templates.get(prediction.intent)
+public generateResponse(
+  prediction: { intent: string; confidence: number; entities?: Record<string, unknown> },
+  userMessage: string = "",
+  conversationHistory: Array<{ role: string; content: string }> = []
+): string {
+  const templates = this.templates.get(prediction.intent)
 
-    if (!templates || templates.length === 0) {
-      const fallback = this.templates.get("fallback")
-      return fallback ? fallback[0].template : "How can I help you?"
-    }
-
-    return templates[0].template
+  if (!templates || templates.length === 0) {
+    const fallback = this.templates.get("fallback")
+    return fallback ? fallback[0].template : "How can I help you?"
   }
+
+  let response = templates[0].template
+
+  // Enhance response with entities
+  if (prediction.entities) {
+    if (prediction.entities.person) {
+      response = response.replace('[PERSON]', String(prediction.entities.person))
+    }
+    if (prediction.entities.email) {
+      response = response.replace('[EMAIL]', String(prediction.entities.email))
+    }
+  }
+
+  // Add context if low confidence
+  if (prediction.confidence < 0.3) {
+    response = `I'm not entirely sure, but ${response}`
+  }
+
+  return response
+}
 
   getTemplate(intent: string): AIMLTemplate | undefined {
     const templates = this.templates.get(intent)

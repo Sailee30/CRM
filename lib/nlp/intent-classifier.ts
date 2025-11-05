@@ -72,21 +72,21 @@ class SmartClassifier {
     return matches / union
   }
 
-  // Check keyword overlap with intent keywords
-  private checkKeywordMatch(userTokens: string[], intent: string): number {
-    const intentKeywords = this.intentKeywords.get(intent) || []
-    if (intentKeywords.length === 0) return 0
+private checkKeywordMatch(userTokens: string[], intent: string): number {
+  const intentKeywords = this.intentKeywords.get(intent) || []
+  if (intentKeywords.length === 0) return 0
 
-    let matches = 0
-    for (const token of userTokens) {
-      if (intentKeywords.includes(token)) {
-        matches++
-      }
+  let matches = 0
+  for (const token of userTokens) {
+    if (intentKeywords.includes(token)) {
+      matches++
     }
-
-    // Percentage of intent keywords that match user tokens (CHANGED)
-    return intentKeywords.length > 0 ? matches / intentKeywords.length : 0
   }
+
+  // Use Jaccard similarity: intersection / union
+  const union = new Set([...userTokens, ...intentKeywords]).size
+  return union > 0 ? matches / union : 0
+}
 
   public train(data: TrainingData[]): void {
     this.trainingData = data
@@ -156,7 +156,11 @@ class SmartClassifier {
     const top3 = scores.slice(0, 3)
 
     const bestIntent = top3[0].intent
-    const avgConfidence = top3.reduce((sum, s) => sum + s.confidence, 0) / top3.length
+    const bestConfidence = top3[0].confidence  // Use ONLY the top score, not average
+
+    // Optionally, verify by checking how much better top is than 2nd place
+    const confidenceDrop = top3.length > 1 ? top3[0].confidence - top3[1].confidence : 1
+    const adjustedConfidence = bestConfidence * (1 + confidenceDrop)  // Boost if clearly the best
 
     console.log(`[Classifier] User phrase: "${phrase}"`)
     console.log(`[Classifier] Extracted keywords: ${userTokens.join(', ')}`)
@@ -164,16 +168,45 @@ class SmartClassifier {
     top3.forEach((s, i) => {
       console.log(`[Classifier]   ${i + 1}. ${s.intent}: ${Math.round(s.confidence * 100)}% (via ${s.method})`)
     })
-    console.log(`[Classifier] Final: ${bestIntent} (${Math.round(avgConfidence * 100)}%)`)
+    console.log(`[Classifier] Final: ${bestIntent} (${Math.round(adjustedConfidence * 100)}%)`)
 
     // Fallback if confidence too low
     const MIN_CONFIDENCE = 0.05
-    const finalIntent = avgConfidence < MIN_CONFIDENCE ? 'fallback' : bestIntent
+    const finalIntent = adjustedConfidence < MIN_CONFIDENCE ? 'fallback' : bestIntent
 
+    function extractEntities(phrase: string): Record<string, unknown> {
+    const entities: Record<string, unknown> = {}
+  
+    // Extract person names (capitalized words)
+    const nameMatch = phrase.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/)
+    if (nameMatch) {
+      entities.person = nameMatch[0]
+    }
+  
+    // Extract emails
+    const emailMatch = phrase.match(/[\w\.-]+@[\w\.-]+\.\w+/)
+    if (emailMatch) {
+      entities.email = emailMatch[0]
+    }
+  
+    // Extract dates
+    const dateMatch = phrase.match(/\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}/)
+    if (dateMatch) {
+      entities.date = dateMatch[0]
+    }
+  
+    // Extract amounts (currency)
+    const amountMatch = phrase.match(/\$\d+\.?\d*/)
+    if (amountMatch) {
+      entities.amount = amountMatch[0]
+    }
+  
+    return entities
+  }
     return {
-      intent: finalIntent,
-      confidence: avgConfidence,
-      entities: {},
+    intent: finalIntent,
+    confidence: adjustedConfidence,  // Changed from avgConfidence
+    entities: extractEntities(phrase),  // Now extract entities!
     }
   }
 

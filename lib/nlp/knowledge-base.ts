@@ -8,6 +8,16 @@ export interface KBArticle {
   embedding?: number[] // Vector embedding for similarity search
 }
 
+import { createSimpleEmbedding } from '@/lib/ml/vector-search'
+
+function initializeEmbeddings(): void {
+  for (const article of knowledgeBase) {
+    if (!article.embedding) {
+      article.embedding = createSimpleEmbedding(article.title + ' ' + article.content)
+    }
+  }
+}
+
 export const knowledgeBase: KBArticle[] = [
   {
     id: "kb-001",
@@ -114,29 +124,43 @@ export const knowledgeBase: KBArticle[] = [
   },
 ]
 
-// Simple similarity search (cosine distance on tokenized text)
+import { cosineSimilarity } from '@/lib/ml/vector-search'
+import { preprocessText } from '@/lib/utils/text-preprocessing'
+
 export function searchKnowledgeBase(query: string): KBArticle[] {
-  const queryTokens = query.toLowerCase().split(/\s+/)
-
-  const scored = knowledgeBase.map((article) => {
-    const titleTokens = article.title.toLowerCase().split(/\s+/)
-    const contentTokens = article.content.toLowerCase().split(/\s+/)
-    const tagTokens = article.tags.map((t) => t.toLowerCase())
-
-    // Simple scoring based on token matches
-    let score = 0
-    queryTokens.forEach((qToken) => {
-      if (titleTokens.includes(qToken)) score += 3
-      if (tagTokens.includes(qToken)) score += 2
-      if (contentTokens.includes(qToken)) score += 1
-    })
-
-    return { article, score }
+  // Method 1: Vector/semantic search
+  const queryEmbedding = createSimpleEmbedding(query)
+  
+  const vectorScores = knowledgeBase.map((article) => {
+    if (!article.embedding) return { article, score: 0 }
+    
+    const similarity = cosineSimilarity(queryEmbedding, article.embedding)
+    return { article, score: similarity }
   })
 
-  return scored
-    .filter((s) => s.score > 0)
+  // Method 2: Keyword search (for exact matches)
+  const queryTokens = preprocessText(query)
+  const keywordScores = knowledgeBase.map((article) => {
+    let score = 0
+    
+    queryTokens.forEach((token) => {
+      if (article.title.toLowerCase().includes(token)) score += 3
+      if (article.tags.map(t => t.toLowerCase()).includes(token)) score += 2
+      if (article.content.toLowerCase().includes(token)) score += 1
+    })
+    
+    return { article, score: score / 10 } // Normalize to 0-1
+  })
+
+  // Combine both methods (70% vector, 30% keyword)
+  const combinedScores = vectorScores.map((vs, idx) => ({
+    article: vs.article,
+    score: (vs.score * 0.7) + (keywordScores[idx].score * 0.3),
+  }))
+
+  return combinedScores
+    .filter((s) => s.score > 0.1)  // Minimum threshold
     .sort((a, b) => b.score - a.score)
-    .slice(0, 3)
+    .slice(0, 5)  // Return top 5 instead of 3
     .map((s) => s.article)
 }
