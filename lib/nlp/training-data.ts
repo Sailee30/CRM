@@ -2,20 +2,16 @@
 import type { TrainingData } from "./intent-classifier"
 
 export const trainingData: TrainingData[] = [
-  // update_contact intent
-  { phrase: "I can't update contact", intent: "update_contact" },
-  { phrase: "when I click save nothing happens", intent: "update_contact" },
-  { phrase: "change phone number for John Doe", intent: "update_contact" },
-  { phrase: "unable to edit contact information", intent: "update_contact" },
-  { phrase: "contact update failed", intent: "update_contact" },
-  { phrase: "save button not working", intent: "update_contact" },
-  { phrase: "update my contact information", intent: "update_contact" },
-  { phrase: "update contact info", intent: "update_contact" },
+// update_contact intent - SPECIFIC PHRASES
+  { phrase: "update contact information", intent: "update_contact" },
+  { phrase: "edit contact details", intent: "update_contact" },
+  { phrase: "change contact email", intent: "update_contact" },
+  { phrase: "modify contact phone", intent: "update_contact" },
+  { phrase: "save contact changes", intent: "update_contact" },
   { phrase: "I want to update a contact", intent: "update_contact" },
-  { phrase: "need to update contact", intent: "update_contact" },
-  { phrase: "modify contact details", intent: "update_contact" },
-  { phrase: "edit my contact", intent: "update_contact" },
-  { phrase: "update contact details", intent: "update_contact" },
+  { phrase: "need to update contact info", intent: "update_contact" },
+  { phrase: "update contact", intent: "update_contact" },
+  { phrase: "edit contact", intent: "update_contact" },
 
   // report_generation intent
   { phrase: "My monthly report is empty", intent: "report_generation" },
@@ -72,6 +68,16 @@ export const trainingData: TrainingData[] = [
   { phrase: "sync my contacts", intent: "data_sync" },
   { phrase: "refresh my data", intent: "data_sync" },
 
+  // error_handling intent
+  { phrase: "edit failed", intent: "error_handling" },
+  { phrase: "delete failed", intent: "error_handling" },
+  { phrase: "update failed", intent: "error_handling" },
+  { phrase: "save failed", intent: "error_handling" },
+  { phrase: "save button not working", intent: "error_handling" },
+  { phrase: "operation failed", intent: "error_handling" },
+  { phrase: "something went wrong", intent: "error_handling" },
+  { phrase: "error occurred", intent: "error_handling" },
+  
   // small talk / fallback
   { phrase: "hello", intent: "greeting" },
   { phrase: "hi", intent: "greeting" },
@@ -85,6 +91,7 @@ export const trainingData: TrainingData[] = [
   { phrase: "what's up", intent: "greeting" },
   { phrase: "how do you do", intent: "greeting" },
   { phrase: "nice to meet you", intent: "greeting" },
+ 
   
   { phrase: "thanks for your help", intent: "gratitude" },
   { phrase: "thank you", intent: "gratitude" },
@@ -95,37 +102,97 @@ export const trainingData: TrainingData[] = [
   { phrase: "much appreciated", intent: "gratitude" },
   { phrase: "thanks a lot", intent: "gratitude" },
   { phrase: "thank you so much", intent: "gratitude" },
+  { phrase: "thx", intent: "gratitude" },
+  { phrase: "ty", intent: "gratitude" },
+  { phrase: "brilliant", intent: "gratitude" },
+  { phrase: "perfect", intent: "gratitude" },
 
-  // CRUD Operations - Frontend Demo
-  { phrase: "list contacts", intent: "crud_list_contacts" },
-  { phrase: "show contacts", intent: "crud_list_contacts" },
-  { phrase: "display contacts", intent: "crud_list_contacts" },
-  { phrase: "all contacts", intent: "crud_list_contacts" },
-  
-  { phrase: "add contact", intent: "crud_add_contact" },
-  { phrase: "create contact", intent: "crud_add_contact" },
-  { phrase: "new contact", intent: "crud_add_contact" },
-  { phrase: "add a contact", intent: "crud_add_contact" },
-  
-  { phrase: "delete contact", intent: "crud_delete_contact" },
-  { phrase: "remove contact", intent: "crud_delete_contact" },
-  { phrase: "delete a contact", intent: "crud_delete_contact" },
-  
-  { phrase: "edit contact", intent: "crud_edit_contact" },
-  { phrase: "update contact", intent: "crud_edit_contact" },
-  { phrase: "modify contact", intent: "crud_edit_contact" },
-  
-  { phrase: "list sales", intent: "crud_list_sales" },
-  { phrase: "show sales", intent: "crud_list_sales" },
-  { phrase: "display sales", intent: "crud_list_sales" },
-  
-  { phrase: "add sale", intent: "crud_add_sale" },
-  { phrase: "create sale", intent: "crud_add_sale" },
-  { phrase: "new sale", intent: "crud_add_sale" },
-  
-  { phrase: "delete sale", intent: "crud_delete_sale" },
-  { phrase: "remove sale", intent: "crud_delete_sale" },
-  
-  { phrase: "edit sale", intent: "crud_edit_sale" },
-  { phrase: "update sale", intent: "crud_edit_sale" },
+
+  // ===== NEW INTENTS (Add to existing trainingData array) =====
+
+// delete_contact intent
+{ phrase: "delete contact", intent: "delete_contact" },
+{ phrase: "remove contact", intent: "delete_contact" },
+{ phrase: "delete a contact", intent: "delete_contact" },
+{ phrase: "erase contact", intent: "delete_contact" },
+{ phrase: "remove from contacts", intent: "delete_contact" },
+{ phrase: "I want to delete contact", intent: "delete_contact" },
+{ phrase: "delete John from contacts", intent: "delete_contact" },
+
+// create_deal intent
+{ phrase: "create a new deal", intent: "create_deal" },
+{ phrase: "add new deal", intent: "create_deal" },
+{ phrase: "create sales opportunity", intent: "create_deal" },
+{ phrase: "start new deal", intent: "create_deal" },
+{ phrase: "create opportunity", intent: "create_deal" },
+{ phrase: "new sales", intent: "create_deal" },
+
+// update_deal / edit_deal intent
+{ phrase: "update deal", intent: "update_deal" },
+{ phrase: "edit deal", intent: "update_deal" },
+{ phrase: "edit sales", intent: "update_deal" },
+{ phrase: "update sales", intent: "update_deal" },
+{ phrase: "change deal stage", intent: "update_deal" },
+{ phrase: "modify deal amount", intent: "update_deal" },
+{ phrase: "edit opportunity", intent: "update_deal" },
+{ phrase: "update opportunity", intent: "update_deal" },
+
+// delete_deal intent
+{ phrase: "delete deal", intent: "delete_deal" },
+{ phrase: "remove deal", intent: "delete_deal" },
+{ phrase: "delete sales", intent: "delete_deal" },
+{ phrase: "delete opportunity", intent: "delete_deal" },
+{ phrase: "remove opportunity", intent: "delete_deal" },
+
+// create_task intent
+{ phrase: "create task", intent: "create_task" },
+{ phrase: "add task", intent: "create_task" },
+{ phrase: "create a new task", intent: "create_task" },
+{ phrase: "add new task", intent: "create_task" },
+{ phrase: "create reminder", intent: "create_task" },
+
+// update_task / edit_task intent
+{ phrase: "update task", intent: "update_task" },
+{ phrase: "edit task", intent: "update_task" },
+{ phrase: "change task deadline", intent: "update_task" },
+{ phrase: "edit task priority", intent: "update_task" },
+{ phrase: "mark task complete", intent: "update_task" },
+{ phrase: "update task status", intent: "update_task" },
+
+// delete_task intent
+{ phrase: "delete task", intent: "delete_task" },
+{ phrase: "remove task", intent: "delete_task" },
+
+// delete_message intent
+{ phrase: "delete message", intent: "delete_message" },
+{ phrase: "remove message", intent: "delete_message" },
+{ phrase: "archive message", intent: "delete_message" },
+
+// update_report intent
+{ phrase: "update report", intent: "update_report" },
+{ phrase: "modify report", intent: "update_report" },
+{ phrase: "change report filters", intent: "update_report" },
+{ phrase: "edit report", intent: "update_report" },
+
+// delete_report intent
+{ phrase: "delete report", intent: "delete_report" },
+{ phrase: "remove report", intent: "delete_report" },
+{ phrase: "delete saved report", intent: "delete_report" },
+
+// create_deal (alias for sales)
+{ phrase: "create a deal", intent: "create_deal" },
+{ phrase: "start new opportunity", intent: "create_deal" },
+
+// update_settings intent
+{ phrase: "update settings", intent: "update_settings" },
+{ phrase: "change settings", intent: "update_settings" },
+{ phrase: "modify settings", intent: "update_settings" },
+{ phrase: "update profile", intent: "update_settings" },
+{ phrase: "change preferences", intent: "update_settings" },
+
+// delete_settings intent
+{ phrase: "delete settings", intent: "delete_settings" },
+{ phrase: "remove user", intent: "delete_settings" },
+{ phrase: "delete team member", intent: "delete_settings" },
+
 ]

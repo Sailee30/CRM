@@ -1,5 +1,30 @@
 // lib/utils/text-preprocessing.ts
 
+// Singularize helper function
+function singularize(word: string): string {
+  const irregulars: Record<string, string> = {
+    'contacts': 'contact',
+    'deals': 'deal',
+    'tasks': 'task',
+    'messages': 'message',
+    'reports': 'report',
+    'settings': 'setting',
+    'sales': 'sale',
+    'opportunities': 'opportunity',
+  }
+
+  if (irregulars[word]) return irregulars[word]
+
+  if (word.endsWith('ies')) return word.slice(0, -3) + 'y'
+  if (word.endsWith('ches')) return word.slice(0, -2)
+  if (word.endsWith('sses')) return word.slice(0, -2)
+  if (word.endsWith('xes')) return word.slice(0, -2)
+  if (word.endsWith('zes')) return word.slice(0, -2)
+  if (word.endsWith('s')) return word.slice(0, -1)
+
+  return word
+}
+
 export function cleanText(text: string): string {
   return text
     .toLowerCase()
@@ -24,8 +49,12 @@ export function removeStopwords(tokens: string[]): string[] {
   return tokens.filter(token => !stopwords.has(token))
 }
 
+// ✅ MAIN FIX: Updated preprocessText with singular normalization
 export function preprocessText(text: string): string[] {
   const cleaned = cleanText(text)
   const tokens = tokenize(cleaned)
-  return removeStopwords(tokens)
+  const withoutStopwords = removeStopwords(tokens)
+  
+  // Normalize plurals to singular
+  return withoutStopwords.map(token => singularize(token))
 }

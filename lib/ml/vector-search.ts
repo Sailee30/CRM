@@ -73,9 +73,9 @@ export function cosineSimilarity(vec1: number[], vec2: number[]): number {
 
 export class VectorStore {
   private entries: Map<string, VectorEntry> = new Map()
-  private dimension: number = 100  // Add this
-  
-  constructor(dimension = 100) {  // Add this
+  private dimension: number  // ✅ Don't initialize here
+
+  constructor(dimension = 100) {  // ✅ Now properly used
     this.dimension = dimension
   }
 

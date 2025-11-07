@@ -1,6 +1,6 @@
 // lib/nlp/similarity.ts
 
-import { cosineSimilarity } from '@/lib/algorithms/distance'
+import { cosineSimilarity } from '@/lib/ml/vector-search' 
 
 export function calculateSimilarity(vec1: number[], vec2: number[]): number {
   return cosineSimilarity(vec1, vec2)
@@ -26,7 +26,7 @@ export function findMostSimilar(
 
 export function calculateConfidence(similarity: number): number {
   // Convert similarity (0-1) to confidence percentage
-  return Math.round(similarity * 100)
+  return Math.min(100, Math.max(0, Math.round(similarity * 100)))  // ✅ Bounded 0-100
 }
 
 export function filterBySimilarity(

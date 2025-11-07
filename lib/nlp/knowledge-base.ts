@@ -1,3 +1,5 @@
+import { initializeVectorizer } from '@/lib/nlp/vectorizer'
+
 // Knowledge base for RAG and FAQ retrieval
 export interface KBArticle {
   id: string
@@ -38,7 +40,7 @@ export const knowledgeBase: KBArticle[] = [
       - Contact support if problem persists
     `,
     category: "Contacts",
-    tags: ["update", "contact", "edit", "save"],
+    tags: ["update", "contact", "edit", "modify", "change", "save"],
   },
   {
     id: "kb-002",
@@ -123,13 +125,48 @@ export const knowledgeBase: KBArticle[] = [
     tags: ["billing", "subscription", "plan", "payment"],
   },
 ]
+initializeEmbeddings()
+
+const allTexts = knowledgeBase.map(article => article.title + ' ' + article.content)
+initializeVectorizer(allTexts)
 
 import { cosineSimilarity } from '@/lib/ml/vector-search'
 import { preprocessText } from '@/lib/utils/text-preprocessing'
 
+
+// ✅ ADD THIS HELPER:
+function singularizeTerm(word: string): string {
+  const irregulars: Record<string, string> = {
+    'contacts': 'contact',
+    'deals': 'deal',
+    'tasks': 'task',
+    'messages': 'message',
+    'reports': 'report',
+    'settings': 'setting',
+    'sales': 'sale',
+    'opportunities': 'opportunity',
+  }
+
+  if (irregulars[word]) return irregulars[word]
+
+  if (word.endsWith('ies')) return word.slice(0, -3) + 'y'
+  if (word.endsWith('ches')) return word.slice(0, -2)
+  if (word.endsWith('sses')) return word.slice(0, -2)
+  if (word.endsWith('xes')) return word.slice(0, -2)
+  if (word.endsWith('zes')) return word.slice(0, -2)
+  if (word.endsWith('s')) return word.slice(0, -1)
+
+  return word
+}
+
 export function searchKnowledgeBase(query: string): KBArticle[] {
-  // Method 1: Vector/semantic search
-  const queryEmbedding = createSimpleEmbedding(query)
+  // ✅ ADD: Normalize query plurals
+  const normalizedQuery = query
+    .split(/\s+/)
+    .map(word => singularizeTerm(word))
+    .join(' ')
+
+  const queryEmbedding = createSimpleEmbedding(normalizedQuery)
   
   const vectorScores = knowledgeBase.map((article) => {
     if (!article.embedding) return { article, score: 0 }
@@ -138,8 +175,7 @@ export function searchKnowledgeBase(query: string): KBArticle[] {
     return { article, score: similarity }
   })
 
-  // Method 2: Keyword search (for exact matches)
-  const queryTokens = preprocessText(query)
+  const queryTokens = preprocessText(normalizedQuery)
   const keywordScores = knowledgeBase.map((article) => {
     let score = 0
     
@@ -149,18 +185,17 @@ export function searchKnowledgeBase(query: string): KBArticle[] {
       if (article.content.toLowerCase().includes(token)) score += 1
     })
     
-    return { article, score: score / 10 } // Normalize to 0-1
+    return { article, score: score / 10 }
   })
 
-  // Combine both methods (70% vector, 30% keyword)
   const combinedScores = vectorScores.map((vs, idx) => ({
     article: vs.article,
     score: (vs.score * 0.7) + (keywordScores[idx].score * 0.3),
   }))
 
   return combinedScores
-    .filter((s) => s.score > 0.1)  // Minimum threshold
+    .filter((s) => s.score > 0.1)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 5)  // Return top 5 instead of 3
+    .slice(0, 5)
     .map((s) => s.article)
 }

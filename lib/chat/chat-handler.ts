@@ -9,18 +9,23 @@ import { preprocessText } from '@/lib/utils/text-preprocessing'
 import { searchKnowledgeBase } from '@/lib/nlp/knowledge-base'
 import type { IntentPrediction } from '@/lib/nlp/intent-classifier'
 
+// ✅ Initialize classifier on module load
+let classifierInitialized = false
+
+function initializeClassifier() {
+  if (!classifierInitialized) {
+    classifier.train(trainingData)
+    classifierInitialized = true
+    console.log('[Chat] Classifier initialized with training data')
+  }
+}
+
+// Call on module load
+initializeClassifier()
+
 /**
  * Initialize chatbot - train classifier once
  * Call this in your API route or app startup
- */
-export function initializeChatbot(): void {
-  console.log('Training classifier with', trainingData.length, 'phrases...')
-  classifier.train(trainingData)
-  console.log('Classifier ready!')
-}
-
-/**
- * Process user message and generate response
  */
 export async function handleChatMessage(
   userId: string,
@@ -34,27 +39,30 @@ export async function handleChatMessage(
   articles: Array<{ id: string; title: string }>
   cluster?: number
 }> {
-  // Ensure classifier is trained
-  initializeChatbot()
-
+  // ✅ Ensure classifier is initialized
+  initializeClassifier()
+  
   // Predict intent
   const prediction = classifier.predict(userMessage)
   console.log(`Intent: ${prediction.intent}, Confidence: ${prediction.confidence}`)
 
-// Get response from AIML processor
-  const response = aimlProcessor.generateResponse(prediction, userMessage)  // ← ADD userMessage parameter
+  // Get response from AIML templates
+  let response = aimlProcessor.generateResponse(prediction, userMessage)
 
-  // Search knowledge base for relevant articles
-  // Priority: search by intent first, then by query
-  let articles = searchKnowledgeBase(userMessage) 
-  
+    // ✅ FIX: Search knowledge base for relevant articles
+  let articles = searchKnowledgeBase(userMessage)
+  // If articles is null or undefined, default to empty array
+  if (!articles) {
+    articles = []
+  }
+
   // Get or create session
   let session = sessionManager.getSession(sessionId)
   if (!session) {
     session = sessionManager.createSession(userId, isAuthenticated)
   }
 
-  // Add user message to session
+  // Add messages to session
   sessionManager.addMessage(sessionId, {
     sessionId,
     content: userMessage,
@@ -63,7 +71,6 @@ export async function handleChatMessage(
     timestamp: new Date(),
   })
 
-  // Add assistant response to session
   sessionManager.addMessage(sessionId, {
     sessionId,
     content: response,
@@ -72,14 +79,18 @@ export async function handleChatMessage(
     timestamp: new Date(),
   })
 
-  // Calculate cluster for this message (for analytics)
+  // Calculate cluster
   const cluster = await clusterMessageIntent(userMessage, prediction)
 
   return {
     response,
     intent: prediction.intent,
     confidence: Math.round(prediction.confidence * 100),
-    articles:articles.map((a: { id: string; title: string }) => ({ id: a.id, title: a.title })),
+    // ✅ FIX: Properly map articles
+    articles: articles.map((a: { id: string; title: string }) => ({
+      id: a.id,
+      title: a.title,
+    })),
     cluster,
   }
 }
@@ -163,250 +174,5 @@ export function getChatAnalytics(): {
       authenticated: sessions.filter(s => s.isAuthenticated).length,
       anonymous: sessions.filter(s => !s.isAuthenticated).length,
     },
-  }
-}
-
-/**
- * Check if user message is a CRUD command
- */
-export function isCRUDCommand(userMessage: string): boolean {
-  const lower = userMessage.toLowerCase().trim()
-  
-  const crudKeywords = [
-    'add contact',
-    'delete contact',
-    'edit contact',
-    'list contact',
-    'show contact',
-    'display contact',
-    'add sale',
-    'delete sale',
-    'edit sale',
-    'list sale',
-    'show sale',
-    'display sale',
-  ]
-  
-  return crudKeywords.some(kw => lower.includes(kw))
-}
-/**
- * Execute CRUD operation and return response
- * This function works with your existing data structure
- */
-export function executeCRUDCommand(
-  userMessage: string,
-  crudData: any
-): { response: string; success: boolean } {
-  const lower = userMessage.toLowerCase().trim()
-  const data = crudData.data
-  const setData = crudData.setData
-  const setChangeCount = crudData.setChangeCount
-
-  // ===== LIST CONTACTS =====
-  if (lower.includes('list contact') || lower.includes('show contact')) {
-    if (data.contacts.length === 0) {
-      return { response: 'No contacts found', success: true }
-    }
-    const list = data.contacts
-      .map((c: any) => `• ${c.name} (${c.email})`)
-      .join('\n')
-    return {
-      response: `Contacts (${data.contacts.length}):\n${list}`,
-      success: true,
-    }
-  }
-
-  // ===== ADD CONTACT =====
-  if (lower.includes('add contact')) {
-    const nameMatch = userMessage.match(/add contact\s+(.+?)(?:\s*$|\s+with)/i)
-    const name = nameMatch ? nameMatch[1].trim() : 'New Contact'
-    
-    setData((prev: any) => ({
-      ...prev,
-      contacts: [
-        ...prev.contacts,
-        { id: Date.now(), name, email: '', phone: '' },
-      ],
-    }))
-    setChangeCount((c: number) => c + 1)
-    return {
-      response: `Added contact: ${name}`,
-      success: true,
-    }
-  }
-
-  // ===== DELETE CONTACT =====
-  if (lower.includes('delete contact')) {
-    const nameMatch = userMessage.match(/delete contact\s+(.+?)(?:\s*$)/i)
-    const searchName = nameMatch ? nameMatch[1].toLowerCase() : ''
-    
-    const contact = data.contacts.find((c: any) =>
-      c.name.toLowerCase().includes(searchName)
-    )
-    
-    if (contact) {
-      setData((prev: any) => ({
-        ...prev,
-        contacts: prev.contacts.filter((c: any) => c.id !== contact.id),
-      }))
-      setChangeCount((c: number) => c + 1)
-      return {
-        response: ` Deleted: ${contact.name}\n⚠️ Frontend only - refreshing will restore it!`,
-        success: true,
-      }
-    }
-    return {
-      response: `Contact "${searchName}" not found`,
-      success: false,
-    }
-  }
-
-  // ===== EDIT CONTACT =====
-  if (lower.includes('edit contact')) {
-    const fromToMatch = userMessage.match(/edit contact\s+(.+?)\s+to\s+(.+?)(?:\s*$)/i)
-    if (fromToMatch) {
-      const oldName = fromToMatch[1].trim().toLowerCase()
-      const newName = fromToMatch[2].trim()
-      
-      const contact = data.contacts.find((c: any) =>
-        c.name.toLowerCase().includes(oldName)
-      )
-      
-      if (contact) {
-        setData((prev: any) => ({
-          ...prev,
-          contacts: prev.contacts.map((c: any) =>
-            c.id === contact.id ? { ...c, name: newName } : c
-          ),
-        }))
-        setChangeCount((c: number) => c + 1)
-        return {
-          response: `Updated: ${contact.name} → ${newName}`,
-          success: true,
-        }
-      }
-      return {
-        response: `Contact "${oldName}" not found`,
-        success: false,
-      }
-    }
-  }
-
-  // ===== LIST SALES =====
-  if (lower.includes('list sale') || lower.includes('show sale')) {
-    if (data.sales.length === 0) {
-      return { response: ' No sales found', success: true }
-    }
-    const list = data.sales
-      .map((s: any) => `• ${s.product} - $${s.amount} (${s.customer})`)
-      .join('\n')
-    return {
-      response: `Sales (${data.sales.length}):\n${list}`,
-      success: true,
-    }
-  }
-
-  // ===== ADD SALE =====
-  if (lower.includes('add sale')) {
-    const productMatch = userMessage.match(/add sale\s+(.+?)(?:\s+-\s+\$?(\d+)|$)/i)
-    const product = productMatch ? productMatch[1].trim() : 'New Sale'
-    const amount = productMatch ? parseInt(productMatch[2] || '0') : 0
-    
-    setData((prev: any) => ({
-      ...prev,
-      sales: [
-        ...prev.sales,
-        { id: Date.now(), product, amount, customer: '', date: new Date().toISOString().split('T')[0] },
-      ],
-    }))
-    setChangeCount((c: number) => c + 1)
-    return {
-      response: `Added sale: ${product} ($${amount})`,
-      success: true,
-    }
-  }
-
-  // ===== DELETE SALE =====
-  if (lower.includes('delete sale')) {
-    const productMatch = userMessage.match(/delete sale\s+(.+?)(?:\s*$)/i)
-    const searchProduct = productMatch ? productMatch[1].toLowerCase() : ''
-    
-    const sale = data.sales.find((s: any) =>
-      s.product.toLowerCase().includes(searchProduct)
-    )
-    
-    if (sale) {
-      setData((prev: any) => ({
-        ...prev,
-        sales: prev.sales.filter((s: any) => s.id !== sale.id),
-      }))
-      setChangeCount((c: number) => c + 1)
-      return {
-        response: `Deleted: ${sale.product}\n⚠️ Frontend only - refreshing will restore it!`,
-        success: true,
-      }
-    }
-    return {
-      response: `Sale "${searchProduct}" not found`,
-      success: false,
-    }
-  }
-
-  // ===== EDIT SALE =====
-  if (lower.includes('edit sale')) {
-    const fromToMatch = userMessage.match(/edit sale\s+(.+?)\s+to\s+\$?(\d+)(?:\s*$)/i)
-    if (fromToMatch) {
-      const productName = fromToMatch[1].trim().toLowerCase()
-      const newAmount = parseInt(fromToMatch[2])
-      
-      const sale = data.sales.find((s: any) =>
-        s.product.toLowerCase().includes(productName)
-      )
-      
-      if (sale && !isNaN(newAmount)) {
-        setData((prev: any) => ({
-          ...prev,
-          sales: prev.sales.map((s: any) =>
-            s.id === sale.id ? { ...s, amount: newAmount } : s
-          ),
-        }))
-        setChangeCount((c: number) => c + 1)
-        return {
-          response: `Updated: ${sale.product} → $${newAmount}`,
-          success: true,
-        }
-      }
-    }
-  }
-
-  return {
-    response: 'Command not recognized',
-    success: false,
-  }
-}
-/**
- * Execute CRUD with NLP confidence checking
- */
-export function executeCRUDCommandWithNLP(
-  userMessage: string,
-  prediction: IntentPrediction,
-  crudData: any
-): { response: string; success: boolean } {
-  
-  // If NLP detected a CRUD intent, use it
-  if (prediction.intent.startsWith('crud_')) {
-    console.log(`[NLP] CRUD intent detected: ${prediction.intent}, confidence: ${prediction.confidence}`)
-    
-    // Show confidence level
-    const confidenceMsg = prediction.confidence > 0.8 
-      ? '' 
-      : `\n(Confidence: ${Math.round(prediction.confidence * 100)}%)`
-    
-    return executeCRUDCommand(userMessage, crudData)
-  }
-
-  return {
-    response: 'Not recognized as CRUD command',
-    success: false,
   }
 }

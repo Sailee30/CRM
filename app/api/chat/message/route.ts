@@ -126,7 +126,7 @@ export async function POST(request: Request) {
     }
 
     // Generate AIML response
-    const assistantResponse = aimlProcessor.generateResponse(prediction)
+    const assistantResponse = aimlProcessor.generateResponse(prediction, content)
 
     // Calculate lead score if customer-related intent
     let leadScore = 0
@@ -233,6 +233,42 @@ function getActionsForIntent(
       break
     case "data_sync":
       actions.push({ type: "action", label: "Sync Data Now", params: { action: "sync_data" } })
+      break
+    case "delete_contact":
+      actions.push({ type: "open_page", label: "Go to Contacts", params: { page: "contacts" } })
+      break
+    case "create_deal":
+      actions.push({ type: "open_page", label: "Go to Sales", params: { page: "sales" } })
+      break
+    case "update_deal":
+      actions.push({ type: "open_page", label: "Go to Sales", params: { page: "sales" } })
+      break
+    case "delete_deal":
+      actions.push({ type: "open_page", label: "Go to Sales", params: { page: "sales" } })
+      break
+    case "create_task":
+      actions.push({ type: "open_page", label: "Go to Tasks", params: { page: "tasks" } })
+      break
+    case "update_task":
+      actions.push({ type: "open_page", label: "Go to Tasks", params: { page: "tasks" } })
+      break
+    case "delete_task":
+      actions.push({ type: "open_page", label: "Go to Tasks", params: { page: "tasks" } })
+      break
+    case "delete_message":
+      actions.push({ type: "open_page", label: "Go to Messages", params: { page: "messages" } })
+      break
+    case "update_report":
+      actions.push({ type: "open_page", label: "Go to Reports", params: { page: "reports" } })
+      break
+    case "delete_report":
+      actions.push({ type: "open_page", label: "Go to Reports", params: { page: "reports" } })
+      break
+    case "update_settings":
+      actions.push({ type: "open_page", label: "Go to Settings", params: { page: "settings" } })
+      break
+    case "delete_settings":
+      actions.push({ type: "open_page", label: "Go to Settings", params: { page: "settings" } })
       break
     case "error":
       actions.push({ type: "escalate", label: "Contact Support" })

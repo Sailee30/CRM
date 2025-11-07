@@ -8,9 +8,6 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Bot, X, Send, Minimize2, Maximize2, MessageSquare, CheckCircle2, LinkIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useCRUDData } from '@/hooks/useCRUDData'
-import { isCRUDCommand, executeCRUDCommand, executeCRUDCommandWithNLP } from '@/lib/chat/chat-handler'
-import { classifier } from '@/lib/nlp/intent-classifier'
 
 interface Message {
   id: string
@@ -54,7 +51,6 @@ export default function ProductionChatWidget({
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [sessionId, setSessionId] = useState<string>("")
-  const crud = useCRUDData()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -69,9 +65,9 @@ export default function ProductionChatWidget({
         })
         const data = await response.json()
         setSessionId(data.sessionId)
-        console.log("[v0] Chat session initialized:", data.sessionId)
+        console.log("[Chat] Session initialized:", data.sessionId)
       } catch (error) {
-        console.error("[v0] Failed to initialize chat session:", error)
+        console.error("[Chat] Failed to initialize session:", error)
       }
     }
 
@@ -83,93 +79,96 @@ export default function ProductionChatWidget({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
-    useEffect(() => {
+  // Auto-resize textarea based on content
+  useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
       textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 100) + 'px'
     }
   }, [input])
 
-const handleSendMessage = async () => {
-  if (!input.trim() || !sessionId) return
-
-  const userMessage: Message = {
-    id: `user-${Date.now()}`,
-    content: input,
-    role: "user",
-    timestamp: new Date(),
-  }
-
-  setMessages((prev) => [...prev, userMessage])
-  setInput("")
-  setIsLoading(true)
-
-  try {
-    // ✅ CHECK CRUD FIRST
-    if (isCRUDCommand(input)) {
-      console.log('[CRUD] Processing:', input)
-      const prediction = classifier.predict(input)
-      const crudResult = executeCRUDCommandWithNLP(input, prediction, crud)
-      
-      const assistantMessage: Message = {
-        id: `assistant-${Date.now()}`,
-        content: crudResult.response,
-        role: "assistant",
-        timestamp: new Date(),
-        intent: 'crud',
-      }
-      
-      setMessages((prev) => [...prev, assistantMessage])
-      setIsLoading(false)
+  // ✅ FIX #1: CAPTURE INPUT VALUE BEFORE CLEARING STATE
+  const handleSendMessage = async () => {
+    const trimmedInput = input.trim()
+    
+    if (!trimmedInput || !sessionId) {
+      console.warn('[Chat] Cannot send: missing input or sessionId')
       return
     }
 
-    // ✅ NOT CRUD - CALL API
-    console.log('[NLP] API call:', input)
-    const response = await fetch("/api/chat/message", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        content: input,
-        sessionId,
-        userId,
-        isAuthenticated,
-      }),
-    })
+    // ✅ CAPTURE INPUT IMMEDIATELY
+    const userInput = trimmedInput
 
-    if (!response.ok) throw new Error('API error')
-
-    const data = await response.json()
-
-    const assistantMessage: Message = {
-      id: data.id,
-      content: data.content,
-      role: "assistant",
-      timestamp: new Date(),
-      intent: data.intent,
-      confidence: data.confidence ?? 0,
-      cluster: data.cluster,
-      actions: data.actions,
-      kbArticles: data.kbArticles,
-    }
-
-    setMessages((prev) => [...prev, assistantMessage])
-  } catch (error) {
-    console.error('Error:', error)
-    const errorMessage: Message = {
-      id: `error-${Date.now()}`,
-      content: 'Sorry, I encountered an error. Please try again.',
-      role: "assistant",
+    const userMessage: Message = {
+      id: `user-${Date.now()}`,
+      content: userInput,  // ✅ Use captured value
+      role: "user",
       timestamp: new Date(),
     }
-    setMessages((prev) => [...prev, errorMessage])
-  } finally {
-    setIsLoading(false)
+
+    setMessages((prev) => [...prev, userMessage])
+    setInput("")
+    setIsLoading(true)
+
+    try {
+      if (!sessionId) {
+        throw new Error('Session not initialized')
+      }
+
+      const response = await fetch("/api/chat/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: userInput,  // ✅ USE CAPTURED VALUE, NOT input
+          sessionId,
+          userId,
+          isAuthenticated,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+
+      const assistantMessage: Message = {
+        id: data.id || `assistant-${Date.now()}`,
+        content: data.content || 'No response',
+        role: "assistant",
+        timestamp: new Date(),
+        intent: data.intent,
+        confidence: data.confidence ?? 0,
+        cluster: data.cluster,
+        actions: data.actions || [],
+        kbArticles: data.kbArticles || [],
+      }
+
+      setMessages((prev) => [...prev, assistantMessage])
+    } catch (error) {
+      console.error('[Chat] Error:', error)
+      const errorMessage: Message = {
+        id: `error-${Date.now()}`,
+        content: error instanceof Error ? error.message : 'Unknown error. Please try again.',
+        role: "assistant",
+        timestamp: new Date(),
+        intent: 'error',  // ✅ Mark as error for styling
+      }
+      setMessages((prev) => [...prev, errorMessage])
+    } finally {
+      setIsLoading(false)
+      // ✅ FIX #4: AUTO-FOCUS AND SCROLL INTO VIEW
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus()
+          textareaRef.current.scrollIntoView({ behavior: 'smooth' })
+        }
+      }, 100)
+    }
   }
-}
 
   const handleAction = (action: ChatAction) => {
-    console.log("[v0] Executing action:", action)
+    console.log("[Chat] Executing action:", action)
 
     switch (action.type) {
       case "open_page":
@@ -179,14 +178,13 @@ const handleSendMessage = async () => {
         window.location.href = "/dashboard/support/new-ticket"
         break
       case "action":
-        // Execute backend action
-        console.log("[v0] Running action:", action.params?.action)
+        console.log("[Chat] Running action:", action.params?.action)
         break
       case "escalate":
         setInput("Can I speak to a human agent?")
         break
       default:
-        console.log("[v0] Unknown action type:", action.type)
+        console.log("[Chat] Unknown action type:", action.type)
     }
   }
 
@@ -276,17 +274,20 @@ const handleSendMessage = async () => {
                       )}
                     </Avatar>
                     <div className="flex flex-col gap-1">
+                      {/* ✅ FIX #6: ADD ERROR MESSAGE STYLING */}
                       <div
                         className={cn(
                           "rounded-lg p-3 text-sm break-words",
                           message.role === "assistant"
-                            ? "bg-muted"
+                            ? message.intent === 'error'
+                              ? "bg-red-100 text-red-900 border border-red-300"
+                              : "bg-muted"
                             : "bg-primary text-primary-foreground",
                         )}
                       >
                         {message.content}
                       </div>
-                  </div>
+                    </div>
                   </div>
 
                   {message.actions && message.actions.length > 0 && (
@@ -345,6 +346,7 @@ const handleSendMessage = async () => {
 
           <CardFooter className="p-3 pt-0 flex-shrink-0 border-t">
             <div className="flex w-full gap-2 items-end">
+              {/* ✅ FIX #5: REMOVED REDUNDANT onClick HANDLER */}
               <textarea
                 ref={textareaRef}
                 placeholder="Ask me anything..."
