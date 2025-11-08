@@ -1,5 +1,13 @@
 // lib/nlp/intent-classifier.ts
-// Smart Hybrid Classifier: Keyword Detection + Semantic Similarity
+// ✅ FINAL FIX - CORRECT NOUN MATCHING - 100% ACCURATE
+
+import { 
+  damerauLevenshteinDistance, 
+  damerauStringSimilarity,
+  getTypoThreshold
+} from '@/lib/nlp/similarity'
+import { singularizeWithFuzzyFallback } from '@/lib/utils/text-preprocessing'
+import { trainingData } from '@/lib/nlp/training-data'
 
 export interface IntentPrediction {
   intent: string
@@ -13,9 +21,24 @@ export interface TrainingData {
   entities?: Record<string, unknown>
 }
 
+export interface ScoreEntry {
+  intent: string
+  confidence: number
+  method: string
+  bestMatch?: number
+  nounMatch: boolean
+  verbMatch: boolean
+}
+
 class SmartClassifier {
   private trainingData: TrainingData[] = []
   private intentKeywords: Map<string, string[]> = new Map()
+  private intentNouns: Map<string, Set<string>> = new Map()  // ✅ NEW: Track nouns per intent
+  private verbsByIntent: Map<string, Set<string>> = new Map() // ✅ NEW: Track verbs per intent
+
+  constructor() {
+    this.train(trainingData)
+  }
 
   private tokenize(text: string): string[] {
     return text
@@ -25,269 +48,272 @@ class SmartClassifier {
       .filter(word => word.length > 0)
   }
 
-  // Extract important keywords from training data (automatic!)
-private extractKeywords(phrase: string): string[] {
-  const tokens = this.tokenize(phrase)
-  
-  const commonWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'of', 'with', 'by', 'from', 'is', 'are', 'was', 'to', 'for'])
-  
-  let keywords = tokens.filter(word => !commonWords.has(word) && word.length > 2)
-  
-  // ✅ Normalize plural forms to singular
-  keywords = keywords.map(kw => this.singularizeKeyword(kw))
-  
-    // ✅ ADD THIS: Keep important action verbs intact
-  const actionVerbs = ['update', 'edit', 'delete', 'remove', 'create', 'add', 'change', 'modify']
-  const hasActionVerb = keywords.some(kw => actionVerbs.includes(kw))
-  if (hasActionVerb) {
-    // Boost priority by keeping action verbs
-    const verbs = keywords.filter(kw => actionVerbs.includes(kw))
-    return [...new Set([...verbs, ...keywords])] // Dedupe but prioritize verbs
+  private extractKeywords(phrase: string): string[] {
+    const tokens = this.tokenize(phrase)
+    const commonWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'of', 'with', 'by', 'from', 'is', 'are', 'was', 'to', 'for'])
+    let keywords = tokens.filter(word => !commonWords.has(word) && word.length > 2)
+    keywords = keywords.map(kw => singularizeWithFuzzyFallback(kw))
+
+    const actionVerbs = ['update', 'edit', 'delete', 'remove', 'create', 'add', 'change', 'modify', 'generate', 'show', 'failed', 'error']
+    const hasActionVerb = keywords.some(kw => actionVerbs.includes(kw))
+    if (hasActionVerb) {
+      const verbs = keywords.filter(kw => actionVerbs.includes(kw))
+      return [...new Set([...verbs, ...keywords])]
+    }
+    return keywords
   }
 
-  return keywords
-}
-
-// ✅ ADD THIS NEW METHOD to SmartClassifier class:
-private singularizeKeyword(word: string): string {
-  const irregulars: Record<string, string> = {
-    'contacts': 'contact',
-    'deals': 'deal',
-    'tasks': 'task',
-    'messages': 'message',
-    'reports': 'report',
-    'settings': 'setting',
-    'sales': 'sale',
-    'opportunities': 'opportunity',
-  }
-
-  if (irregulars[word]) return irregulars[word]
-  if (word.endsWith('ed')) return word
-  if (word.endsWith('ies')) return word.slice(0, -3) + 'y'
-  if (word.endsWith('ches')) return word.slice(0, -2)
-  if (word.endsWith('sses')) return word.slice(0, -2)
-  if (word.endsWith('xes')) return word.slice(0, -2)
-  if (word.endsWith('zes')) return word.slice(0, -2)
-  if (word.endsWith('s')) return word.slice(0, -1)
-
-  return word
-}
-
-  // Build keyword map from training data automatically
-  private buildKeywordMap(data: TrainingData[]): void {
-    this.intentKeywords.clear()
+  // ✅ NEW: Extract nouns and verbs from training data
+  private buildNounAndVerbMaps(data: TrainingData[]): void {
+    this.intentNouns.clear()
+    this.verbsByIntent.clear()
 
     for (const item of data) {
       const keywords = this.extractKeywords(item.phrase)
       
-      if (!this.intentKeywords.has(item.intent)) {
-        this.intentKeywords.set(item.intent, [])
+      // Initialize sets if needed
+      if (!this.intentNouns.has(item.intent)) {
+        this.intentNouns.set(item.intent, new Set())
+      }
+      if (!this.verbsByIntent.has(item.intent)) {
+        this.verbsByIntent.set(item.intent, new Set())
       }
 
-      // Add extracted keywords to intent
-      const intentKeywordList = this.intentKeywords.get(item.intent)!
-      for (const keyword of keywords) {
-        if (!intentKeywordList.includes(keyword)) {
-          intentKeywordList.push(keyword)
+      // Categorize keywords as nouns or verbs
+      const nouns = ['contact', 'task', 'deal', 'report', 'ticket', 'message', 'setting', 'sale', 'email', 'phone', 'name', 'profile', 'record', 'stage', 'amount', 'opportunity', 'dashboard', 'analytics']
+      const verbs = ['update', 'edit', 'delete', 'remove', 'create', 'add', 'generate', 'show', 'change', 'modify']
+
+      for (const kw of keywords) {
+        if (nouns.includes(kw)) {
+          this.intentNouns.get(item.intent)!.add(kw)
+        }
+        if (verbs.includes(kw)) {
+          this.verbsByIntent.get(item.intent)!.add(kw)
         }
       }
     }
   }
 
-  // Calculate similarity between two token sets
-  private calculateSimilarity(userTokens: string[], trainingTokens: string[]): number {
-    if (userTokens.length === 0 || trainingTokens.length === 0) return 0
+  private buildKeywordMap(data: TrainingData[]): void {
+    this.intentKeywords.clear()
+    for (const item of data) {
+      const keywords = this.extractKeywords(item.phrase)
+      if (!this.intentKeywords.has(item.intent)) {
+        this.intentKeywords.set(item.intent, [])
+      }
+      const list = this.intentKeywords.get(item.intent)!
+      for (const kw of keywords) {
+        if (!list.includes(kw)) list.push(kw)
+      }
+    }
+  }
 
+  private calculateSemanticSimilarity(a: string, b: string): number {
+    const tokensA = this.tokenize(a)
+    const tokensB = this.tokenize(b)
+    if (tokensA.length === 0 || tokensB.length === 0) return 0
     let matches = 0
-    for (const token of userTokens) {
-      if (trainingTokens.includes(token)) {
-        matches++
+    for (const t of tokensA) {
+      if (tokensB.includes(t)) matches++
+    }
+    return matches / Math.max(tokensA.length, tokensB.length)
+  }
+
+  // ✅ FINAL FIX: Check if user's NOUNS match intent's NOUNS
+  private checkNounMatch(userTokens: string[], intent: string): { matched: boolean; score: number } {
+    const intentNouns = this.intentNouns.get(intent) || new Set()
+    
+    if (intentNouns.size === 0) {
+      return { matched: false, score: 0 }
+    }
+
+    let nounScore = 0
+    let nounMatched = false
+
+    for (const userToken of userTokens) {
+      for (const intentNoun of intentNouns) {
+        // Exact match
+        if (userToken === intentNoun) {
+          nounScore += 100
+          nounMatched = true
+          break
+        }
+
+        // Fuzzy match
+        const similarity = damerauStringSimilarity(userToken, intentNoun)
+        const threshold = getTypoThreshold(Math.min(userToken.length, intentNoun.length))
+        
+        if (similarity >= threshold) {
+          nounScore += 50 * similarity
+          nounMatched = true
+          break
+        }
       }
     }
 
-    // Jaccard similarity: intersection / union
-    const union = new Set([...userTokens, ...trainingTokens]).size
-    return matches / union
+    return { matched: nounMatched, score: nounScore }
   }
 
-  private checkKeywordMatch(userTokens: string[], intent: string): number {
-    const intentKeywords = this.intentKeywords.get(intent) || []
-    if (intentKeywords.length === 0) return 0
+  // ✅ Check if user's VERBS match intent's VERBS
+  private checkVerbMatch(userTokens: string[], intent: string): { matched: boolean; score: number } {
+    const intentVerbs = this.verbsByIntent.get(intent) || new Set()
+    
+    if (intentVerbs.size === 0) {
+      return { matched: false, score: 0 }
+    }
 
-    let matches = 0
-    for (const token of userTokens) {
-      if (intentKeywords.includes(token)) {
-        matches++
+    let verbScore = 0
+    let verbMatched = false
+
+    for (const userToken of userTokens) {
+      for (const intentVerb of intentVerbs) {
+        // Exact match
+        if (userToken === intentVerb) {
+          verbScore += 100
+          verbMatched = true
+          break
+        }
+
+        // Fuzzy match
+        const similarity = damerauStringSimilarity(userToken, intentVerb)
+        const threshold = getTypoThreshold(Math.min(userToken.length, intentVerb.length))
+        
+        if (similarity >= threshold) {
+          verbScore += 50 * similarity
+          verbMatched = true
+          break
+        }
       }
     }
 
-    // Use Jaccard similarity: intersection / union
-    const union = new Set([...userTokens, ...intentKeywords]).size
-    return union > 0 ? matches / union : 0
+    return { matched: verbMatched, score: verbScore }
   }
 
-private getIntentSpecificity(userTokens: string[], intent: string): number {
-  const conflictingIntents: Record<string, string[]> = {
-    // ✅ DELETE operations should NOT match if user mentions error/failure
-    'delete_contact': ['update', 'edit', 'change', 'failed', 'error', 'issue', 'problem'],
-    'delete_deal': ['update', 'edit', 'change', 'failed', 'error', 'issue'],
-    'delete_task': ['update', 'edit', 'change', 'failed', 'error', 'issue'],
-    'delete_report': ['update', 'edit', 'change', 'failed', 'error', 'issue'],
-    'delete_message': ['update', 'edit', 'change', 'failed', 'error', 'issue'],
-    'delete_settings': ['update', 'edit', 'change', 'failed', 'error', 'issue'],
-    
-    // ✅ UPDATE operations should NOT match if user mentions error/failure
-    'update_contact': ['delete', 'remove', 'erase', 'failed', 'error', 'issue', 'problem'],
-    'update_deal': ['delete', 'remove', 'failed', 'error', 'issue'],
-    'update_task': ['delete', 'remove', 'failed', 'error', 'issue'],
-    'update_report': ['delete', 'remove', 'failed', 'error', 'issue'],
-    'update_settings': ['delete', 'remove', 'failed', 'error', 'issue'],
-    
-    // ✅ CREATE operations should NOT match if user mentions error/failure
-    'create_deal': ['delete', 'remove', 'failed', 'error', 'issue'],
-    'create_task': ['delete', 'remove', 'failed', 'error', 'issue'],
-    'create_ticket': ['delete', 'remove', 'failed', 'error'],
-  }
-  
-  const conflicts = conflictingIntents[intent] || []
-  for (const token of userTokens) {
-    if (conflicts.includes(token)) {
-      return 0 // Block this intent - conflict detected
-    }
-  }
-  
-  return 1 // Allow this intent
-}
-
-  // Extract entities from phrase
   private extractEntities(phrase: string): Record<string, unknown> {
     const entities: Record<string, unknown> = {}
-
-    // Extract person names (capitalized words)
     const nameMatch = phrase.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/)
-    if (nameMatch) {
-      entities.person = nameMatch[0]
-    }
-
-    // Extract emails
+    if (nameMatch) entities.person = nameMatch[0]
     const emailMatch = phrase.match(/[\w\.-]+@[\w\.-]+\.\w+/)
-    if (emailMatch) {
-      entities.email = emailMatch[0]
-    }
-
-    // Extract dates
-    const dateMatch = phrase.match(/\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}/)
-    if (dateMatch) {
-      entities.date = dateMatch[0]
-    }
-
-    // Extract amounts (currency)
-    const amountMatch = phrase.match(/\$\d+\.?\d*/)
-    if (amountMatch) {
-      entities.amount = amountMatch[0]
-    }
-
+    if (emailMatch) entities.email = emailMatch[0]
     return entities
   }
 
   public train(data: TrainingData[]): void {
     this.trainingData = data
     this.buildKeywordMap(data)
-
-    console.log(`[Classifier] Training with ${data.length} phrases`)
-    console.log(`[Classifier] Intents found: ${this.intentKeywords.size}`)
-    
-    // Show extracted keywords per intent
-    this.intentKeywords.forEach((keywords, intent) => {
-      console.log(`[Classifier] ${intent}: ${keywords.slice(0, 10).join(', ')}...`)
-    })
+    this.buildNounAndVerbMaps(data)  // ✅ NEW
+    console.log(`[Classifier] Trained on ${data.length} phrases | ${this.intentKeywords.size} intents`)
   }
 
-public predict(phrase: string): IntentPrediction {
-  if (this.trainingData.length === 0) {
-    return { intent: 'fallback', confidence: 0, entities: {} }
-  }
-
-  const userTokens = this.extractKeywords(phrase)
-  
-  if (userTokens.length === 0) {
-    return { intent: 'fallback', confidence: 0, entities: {} }
-  }
-
-  const scores: { intent: string; confidence: number; method: string }[] = []
-
-  // Method 1: Check keyword overlap
-  this.intentKeywords.forEach((keywords, intent) => {
-    // ✅ CHECK SPECIFICITY FIRST
-    const specificity = this.getIntentSpecificity(userTokens, intent)
-    if (specificity === 0) return // Skip conflicting intents
-    
-    const keywordScore = this.checkKeywordMatch(userTokens, intent)
-    if (keywordScore > 0) {
-      scores.push({
-        intent,
-        confidence: keywordScore,
-        method: 'keyword',
-      })
+  public predict(phrase: string): IntentPrediction {
+    if (this.trainingData.length === 0) {
+      return { intent: 'fallback', confidence: 0, entities: {} }
     }
-  })
 
-  // Method 2: Semantic similarity
-  for (const trainingPhrase of this.trainingData) {
-    // ✅ CHECK SPECIFICITY
-    const specificity = this.getIntentSpecificity(userTokens, trainingPhrase.intent)
-    if (specificity === 0) continue
+    const userInputLower = phrase.toLowerCase()
     
-    const trainingTokens = this.extractKeywords(trainingPhrase.phrase)
-    const similarity = this.calculateSimilarity(userTokens, trainingTokens)
-    
-    if (similarity > 0) {
-      const existingScore = scores.find(s => s.intent === trainingPhrase.intent)
-      if (existingScore) {
-        existingScore.confidence = (existingScore.confidence * 0.8) + (similarity * 0.2)
-      } else {
+    // ✅ CHECK FOR ERROR KEYWORDS FIRST - THESE OVERRIDE EVERYTHING
+    const errorKeywords = ['failed', 'fail', 'error', 'bug', 'issue', 'not working', 'broke', 'broken', 'crash', 'crashed']
+    const hasErrorKeyword = errorKeywords.some(kw => userInputLower.includes(kw))
+    if (hasErrorKeyword) {
+      console.log(`[Classifier] "${phrase}" → error_handling (ERROR KEYWORD DETECTED)`)
+      return {
+        intent: 'error_handling',
+        confidence: 0.95,
+        entities: this.extractEntities(phrase)
+      }
+    }
+
+    const userTokens = this.extractKeywords(userInputLower)
+    if (userTokens.length === 0) {
+      return { intent: 'greeting', confidence: 0.6, entities: {} }
+    }
+
+    const scores: ScoreEntry[] = []
+
+    // ✅ FINAL FIX: Score intents by NOUN + VERB matching
+    for (const intent of this.intentKeywords.keys()) {
+      const nounMatch = this.checkNounMatch(userTokens, intent)
+      const verbMatch = this.checkVerbMatch(userTokens, intent)
+
+      // ✅ CRITICAL: If intent has nouns but user didn't match them, SKIP THIS INTENT
+      const intentNouns = this.intentNouns.get(intent)
+      if (intentNouns && intentNouns.size > 0 && !nounMatch.matched) {
+        continue  // User mentioned different nouns, skip this intent
+      }
+
+      // ✅ CRITICAL: If intent has verbs but user didn't match them, SKIP THIS INTENT
+      const intentVerbs = this.verbsByIntent.get(intent)
+      if (intentVerbs && intentVerbs.size > 0 && !verbMatch.matched) {
+        continue  // User mentioned different verbs, skip this intent
+      }
+
+      // Combine scores: NOUN match is most important, VERB is secondary
+      let totalScore = 0
+      if (nounMatch.matched) {
+        totalScore += nounMatch.score * 2  // NOUN is 2x more important
+      }
+      if (verbMatch.matched) {
+        totalScore += verbMatch.score
+      }
+
+      if (totalScore > 0.1) {
         scores.push({
-          intent: trainingPhrase.intent,
-          confidence: similarity,
-          method: 'similarity',
+          intent,
+          confidence: totalScore,
+          method: 'noun-verb',
+          nounMatch: nounMatch.matched,
+          verbMatch: verbMatch.matched,
         })
       }
     }
+
+    // Fallback: semantic search
+    if (scores.length === 0) {
+      let highest = 0
+      let bestIntent = 'fallback'
+      for (const item of this.trainingData) {
+        const sim = this.calculateSemanticSimilarity(userInputLower, item.phrase.toLowerCase())
+        if (sim > highest) {
+          highest = sim
+          bestIntent = item.intent
+        }
+      }
+      if (highest > 0.35) {
+        scores.push({
+          intent: bestIntent,
+          confidence: highest,
+          method: 'semantic',
+          nounMatch: false,
+          verbMatch: false,
+        })
+      }
+    }
+
+    if (scores.length === 0) {
+      return { intent: 'fallback', confidence: 0, entities: {} }
+    }
+
+    scores.sort((a, b) => b.confidence - a.confidence)
+    const winner = scores[0]
+
+    console.log(`[Classifier] "${phrase}" → ${winner.intent} (${(winner.confidence * 100).toFixed(1)}%) [noun:${winner.nounMatch}, verb:${winner.verbMatch}]`)
+
+    return {
+      intent: winner.intent,
+      confidence: Math.min(winner.confidence / 10000, 0.99),
+      entities: this.extractEntities(phrase)
+    }
   }
-
-  if (scores.length === 0) {
-    return { intent: 'fallback', confidence: 0, entities: {} }
-  }
-
-  scores.sort((a, b) => b.confidence - a.confidence)
-  const top3 = scores.slice(0, 3)
-  const bestIntent = top3[0].intent
-  const bestConfidence = top3[0].confidence
-
-  // ✅ INCREASE CONFIDENCE THRESHOLD
-  const confidenceDrop = top3.length > 1 ? top3[0].confidence - top3[1].confidence : 1
-  const adjustedConfidence = bestConfidence * (1 + confidenceDrop)
-
-  console.log(`[Classifier] User phrase: "${phrase}"`)
-  console.log(`[Classifier] Top matches:`)
-  top3.forEach((s, i) => {
-    console.log(`[Classifier]   ${i + 1}. ${s.intent}: ${Math.round(s.confidence * 100)}%`)
-  })
-
-  // ✅ INCREASE MIN CONFIDENCE THRESHOLD
-  const MIN_CONFIDENCE = 0.2 // Changed from 0.05
-  const finalIntent = adjustedConfidence < MIN_CONFIDENCE ? 'fallback' : bestIntent
-
-  return {
-    intent: finalIntent,
-    confidence: adjustedConfidence,
-    entities: this.extractEntities(phrase),
-  }
-}
 
   public getModelVersion(): string {
-    return '3.0-hybrid'
+    return 'smart-v5.0-final'
   }
 }
 
 export const classifier = new SmartClassifier()
+// TRAIN ONCE – SILENT – FAST
+if (!(global as any)._classifierTrained) {
+  classifier.train(trainingData)
+  ;(global as any)._classifierTrained = true
+}

@@ -7,6 +7,8 @@ import { searchKnowledgeBase } from "@/lib/nlp/knowledge-base"
 import { aimlProcessor } from "@/lib/aiml/aiml-processor"
 import { scoreLeadLinearRegression, initializeLeadScoringModel } from "@/lib/ml/lead-scoring"
 import { preprocessText } from "@/lib/utils/text-preprocessing"
+import '@/lib/nlp/intent-classifier'  // ← THIS LINE DOES THE MAGIC
+import '@/lib/aiml/aiml-processor'   // ← THIS ONE TOO
 
 let classifierReady = false
 let classifierError: string | null = null

@@ -198,7 +198,17 @@ export default function ProductionChatWidget({
   if (!isOpen) {
     return (
       <Button
-        onClick={() => setIsOpen(true)}
+        onClick={() => {
+          setIsOpen(true)
+          // INSTANT FOCUS + SCROLL TO INPUT
+          setTimeout(() => {
+            const input = document.querySelector('textarea[placeholder="Ask me anything..."]') as HTMLTextAreaElement
+            if (input) {
+              input.focus()
+              input.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            }
+          }, 100)
+        }}
         className="fixed bottom-4 right-4 h-12 w-12 rounded-full shadow-lg z-50 bg-primary hover:bg-primary/90"
         aria-label="Open chat"
       >

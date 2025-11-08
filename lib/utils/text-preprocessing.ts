@@ -1,4 +1,5 @@
 // lib/utils/text-preprocessing.ts
+import { damerauStringSimilarity, getTypoThreshold } from '@/lib/nlp/similarity'
 
 // Singularize helper function
 function singularize(word: string): string {
@@ -57,4 +58,34 @@ export function preprocessText(text: string): string[] {
   
   // Normalize plurals to singular
   return withoutStopwords.map(token => singularize(token))
+}
+
+// ✅ FIX : ADD FUZZY SINGULARIZATION FOR TYPOS
+// If normal singularize doesn't work, try fuzzy match against known singular forms
+export function singularizeWithFuzzyFallback(
+  word: string,
+  knownSingulars: string[] = [
+    'contact', 'deal', 'task', 'message', 'report', 'setting', 'sale', 'opportunity'
+  ]
+): string {
+  // Try exact singular form first
+  const singular = singularize(word)
+  
+  // If it matches a known word, return it
+  if (knownSingulars.includes(singular)) {
+    return singular
+  }
+  
+  // If not, try fuzzy match against known singulars
+  for (const known of knownSingulars) {
+    const similarity = damerauStringSimilarity(singular, known)
+    const threshold = getTypoThreshold(Math.min(singular.length, known.length))
+    
+    if (similarity >= threshold) {
+      return known  // Return corrected version
+    }
+  }
+  
+  // If still no match, return as-is
+  return singular
 }

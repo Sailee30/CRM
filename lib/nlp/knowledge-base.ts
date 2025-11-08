@@ -1,4 +1,9 @@
 import { initializeVectorizer } from '@/lib/nlp/vectorizer'
+import { 
+  damerauStringSimilarity,
+  getTypoThreshold
+} from '@/lib/nlp/similarity'
+import { singularizeWithFuzzyFallback } from '@/lib/utils/text-preprocessing'
 
 // Knowledge base for RAG and FAQ retrieval
 export interface KBArticle {
@@ -133,38 +138,12 @@ initializeVectorizer(allTexts)
 import { cosineSimilarity } from '@/lib/ml/vector-search'
 import { preprocessText } from '@/lib/utils/text-preprocessing'
 
-
-// ✅ ADD THIS HELPER:
-function singularizeTerm(word: string): string {
-  const irregulars: Record<string, string> = {
-    'contacts': 'contact',
-    'deals': 'deal',
-    'tasks': 'task',
-    'messages': 'message',
-    'reports': 'report',
-    'settings': 'setting',
-    'sales': 'sale',
-    'opportunities': 'opportunity',
-  }
-
-  if (irregulars[word]) return irregulars[word]
-
-  if (word.endsWith('ies')) return word.slice(0, -3) + 'y'
-  if (word.endsWith('ches')) return word.slice(0, -2)
-  if (word.endsWith('sses')) return word.slice(0, -2)
-  if (word.endsWith('xes')) return word.slice(0, -2)
-  if (word.endsWith('zes')) return word.slice(0, -2)
-  if (word.endsWith('s')) return word.slice(0, -1)
-
-  return word
-}
-
 export function searchKnowledgeBase(query: string): KBArticle[] {
-  // ✅ ADD: Normalize query plurals
-  const normalizedQuery = query
-    .split(/\s+/)
-    .map(word => singularizeTerm(word))
-    .join(' ')
+
+const normalizedQuery = query
+  .split(/\s+/)
+  .map(word => singularizeWithFuzzyFallback(word))
+  .join(' ')
 
   const queryEmbedding = createSimpleEmbedding(normalizedQuery)
   
@@ -176,17 +155,53 @@ export function searchKnowledgeBase(query: string): KBArticle[] {
   })
 
   const queryTokens = preprocessText(normalizedQuery)
-  const keywordScores = knowledgeBase.map((article) => {
-    let score = 0
+
+const keywordScores = knowledgeBase.map((article) => {
+  let score = 0
+  
+  queryTokens.forEach((token) => {
+    if (article.title.toLowerCase().includes(token)) {
+      score += 3
+    } else {
+      // ✅ Use Damerau for typo handling
+      const titleLower = article.title.toLowerCase()
+      const titleWords = titleLower.split(/\s+/)
+      for (const titleWord of titleWords) {
+        const sim = damerauStringSimilarity(token, titleWord)
+        const threshold = getTypoThreshold(Math.min(token.length, titleWord.length))
+        
+        if (sim >= threshold) {
+          score += 2
+          break
+        }
+      }
+    }
     
-    queryTokens.forEach((token) => {
-      if (article.title.toLowerCase().includes(token)) score += 3
-      if (article.tags.map(t => t.toLowerCase()).includes(token)) score += 2
-      if (article.content.toLowerCase().includes(token)) score += 1
-    })
+    let tagMatched = false
+    for (const tag of article.tags) {
+      if (tag.toLowerCase() === token) {
+        score += 2
+        tagMatched = true
+        break
+      }
+      // ✅ Use Damerau here too
+      const sim = damerauStringSimilarity(token, tag.toLowerCase())
+      const threshold = getTypoThreshold(Math.min(token.length, tag.length))
+      
+      if (sim >= threshold) {
+        score += 1.5
+        tagMatched = true
+        break
+      }
+    }
     
-    return { article, score: score / 10 }
+    if (!tagMatched && article.content.toLowerCase().includes(token)) {
+      score += 1
+    }
   })
+  
+  return { article, score: score / 10 }
+})
 
   const combinedScores = vectorScores.map((vs, idx) => ({
     article: vs.article,
@@ -194,7 +209,7 @@ export function searchKnowledgeBase(query: string): KBArticle[] {
   }))
 
   return combinedScores
-    .filter((s) => s.score > 0.1)
+    .filter((s) => s.score > 0.05)
     .sort((a, b) => b.score - a.score)
     .slice(0, 5)
     .map((s) => s.article)

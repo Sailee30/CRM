@@ -1,6 +1,11 @@
 // lib/aiml/aiml-processor.ts
+// ✅ FIXED: Better template selection with action verb awareness
 
 import type { IntentPrediction } from '@/lib/nlp/intent-classifier'
+import { 
+  damerauLevenshteinDistance,
+  getTypoThreshold,
+} from '@/lib/nlp/similarity'
 
 export interface AIMLTemplate {
   pattern: string
@@ -13,26 +18,46 @@ export class AIMLProcessor {
 
   constructor() {
     this.initializeTemplates()
+    console.log('[AIML] Templates ready – hot on first message')
   }
 
-private initializeTemplates(): void {
+  private initializeTemplates(): void {
     this.templates.set('update_contact', [
-    {
-      pattern: 'UPDATE*CONTACT',
-      template: 'To update contact: 1) Go to Contacts 2) Click contact 3) Click Edit 4) Modify fields 5) Click Save',
-      confidence: 0.9,
-    },
-    {
-      pattern: 'UPDATE*FIELD*SPECIFIC',
-      template: 'Go to Contacts > Select contact > Click Edit > Modify field > Click Save',
-      confidence: 0.85,
-    },
-    {
-      pattern: 'UPDATE*EMAIL',
-      template: 'To update email: 1) Go to Contacts 2) Select contact 3) Click Edit 4) Update email field 5) Click Save',
-      confidence: 0.9,
-    },
-  ])
+      {
+        pattern: 'UPDATE*CONTACT',
+        template: 'To update contact: 1) Go to Contacts 2) Click contact 3) Click Edit 4) Modify fields 5) Click Save',
+        confidence: 0.9,
+      },
+      {
+        pattern: 'UPDATE*EMAIL',
+        template: 'To update email: 1) Go to Contacts 2) Select contact 3) Click Edit 4) Update email field 5) Click Save',
+        confidence: 0.9,
+      },
+      {
+        pattern: 'UPDATE*PHONE',
+        template: 'To update phone: 1) Go to Contacts 2) Select contact 3) Click Edit 4) Update phone field 5) Click Save',
+        confidence: 0.9,
+      },
+    ])
+
+    // ✅ KEY FIX: Add comprehensive delete templates
+    this.templates.set('delete_contact', [
+      {
+        pattern: 'DELETE*CONTACT',
+        template: 'To delete contact: 1) Go to Contacts 2) Click contact 3) Click three-dot menu (•••) 4) Select Delete 5) Confirm deletion',
+        confidence: 0.9,
+      },
+      {
+        pattern: 'DELETE*EMAIL',
+        template: 'To delete email: 1) Go to Contacts 2) Select contact 3) Click Edit 4) Clear email field 5) Click Save',
+        confidence: 0.9,
+      },
+      {
+        pattern: 'REMOVE*EMAIL',
+        template: 'To remove email: 1) Go to Contacts 2) Select contact 3) Click Edit 4) Clear email field 5) Click Save',
+        confidence: 0.9,
+      },
+    ])
 
     this.templates.set('report_generation', [
       {
@@ -41,10 +66,9 @@ private initializeTemplates(): void {
         confidence: 0.9,
       },
       {
-        pattern: 'EMPTY*REPORT*DATA',
+        pattern: 'EMPTY*REPORT',
         template: 'If your report appears empty, check: 1) Your date range includes data 2) Filters are set correctly 3) Contacts have required fields populated',
         confidence: 0.85,
-
       },
     ])
 
@@ -55,7 +79,7 @@ private initializeTemplates(): void {
         confidence: 0.9,
       },
       {
-        pattern: 'REPORT*ISSUE*BUG',
+        pattern: 'REPORT*BUG',
         template: 'Thank you for reporting this issue. I am creating a support ticket for our team to investigate',
         confidence: 0.9,
       },
@@ -63,15 +87,15 @@ private initializeTemplates(): void {
 
     this.templates.set('get_customer_summary', [
       {
-        pattern: 'SHOW*CUSTOMER*INFORMATION',
-        template: 'To view customer details: 1) Go to Contacts 2) Search by name/email 3) Click contact 4) View profile 5) Click Edit to modify information',
+        pattern: 'SHOW*CUSTOMER',
+        template: 'To view customer details: 1) Go to Contacts 2) Search by name/email 3) Click contact 4) View profile',
         confidence: 0.9,
       },
     ])
 
     this.templates.set('billing_query', [
       {
-        pattern: 'BILLING*INFORMATION',
+        pattern: 'BILLING*',
         template: 'To manage billing: 1) Go to Settings > Billing 2) View plan & invoices 3) Click "Change Plan" to upgrade',
         confidence: 0.9,
       },
@@ -85,16 +109,6 @@ private initializeTemplates(): void {
       },
     ])
 
-    // DELETE CONTACT
-    this.templates.set('delete_contact', [
-      {
-        pattern: 'DELETE*CONTACT',
-        template: 'To delete contact: 1) Go to Contacts 2) Click contact 3) Click three-dot menu (•••) 4) Select Delete 5) Confirm deletion',
-        confidence: 0.9,
-      },
-    ])
-
-    // CREATE DEAL
     this.templates.set('create_deal', [
       {
         pattern: 'CREATE*DEAL',
@@ -103,7 +117,6 @@ private initializeTemplates(): void {
       },
     ])
 
-    // UPDATE DEAL
     this.templates.set('update_deal', [
       {
         pattern: 'UPDATE*DEAL',
@@ -112,7 +125,6 @@ private initializeTemplates(): void {
       },
     ])
 
-    // DELETE DEAL
     this.templates.set('delete_deal', [
       {
         pattern: 'DELETE*DEAL',
@@ -121,7 +133,6 @@ private initializeTemplates(): void {
       },
     ])
 
-    // CREATE TASK
     this.templates.set('create_task', [
       {
         pattern: 'CREATE*TASK',
@@ -130,7 +141,6 @@ private initializeTemplates(): void {
       },
     ])
 
-    // UPDATE TASK
     this.templates.set('update_task', [
       {
         pattern: 'UPDATE*TASK',
@@ -139,7 +149,6 @@ private initializeTemplates(): void {
       },
     ])
 
-    // DELETE TASK
     this.templates.set('delete_task', [
       {
         pattern: 'DELETE*TASK',
@@ -148,7 +157,6 @@ private initializeTemplates(): void {
       },
     ])
 
-    // DELETE MESSAGE
     this.templates.set('delete_message', [
       {
         pattern: 'DELETE*MESSAGE',
@@ -157,7 +165,6 @@ private initializeTemplates(): void {
       },
     ])
 
-    // UPDATE REPORT
     this.templates.set('update_report', [
       {
         pattern: 'UPDATE*REPORT',
@@ -166,7 +173,6 @@ private initializeTemplates(): void {
       },
     ])
 
-    // DELETE REPORT
     this.templates.set('delete_report', [
       {
         pattern: 'DELETE*REPORT',
@@ -175,20 +181,18 @@ private initializeTemplates(): void {
       },
     ])
 
-    // UPDATE SETTINGS
     this.templates.set('update_settings', [
       {
         pattern: 'UPDATE*SETTINGS',
-        template: 'To update settings: 1) Go to Settings 2) Choose section (Profile/Notifications/Billing) 3) Make changes 4) Click Save',
+        template: 'To update settings: 1) Go to Settings 2) Choose section 3) Make changes 4) Click Save',
         confidence: 0.9,
       },
     ])
 
-    // DELETE SETTINGS
     this.templates.set('delete_settings', [
       {
         pattern: 'DELETE*SETTINGS',
-        template: 'To delete from settings: 1) Go to Settings 2) Select item (Team member/Integration) 3) Click "Remove" or "Delete" 4) Confirm deletion',
+        template: 'To delete from settings: 1) Go to Settings 2) Select item 3) Click "Remove" or "Delete" 4) Confirm deletion',
         confidence: 0.9,
       },
     ])
@@ -202,11 +206,6 @@ private initializeTemplates(): void {
       {
         pattern: 'HI',
         template: 'Hi there! I\'m here to help you manage your CRM. What would you like to do today?',
-        confidence: 0.95,
-      },
-      {
-        pattern: 'HEY',
-        template: 'Hey! Welcome to CRMaster. I can assist with contacts, deals, tasks, reports, and more. What do you need?',
         confidence: 0.95,
       },
       {
@@ -226,10 +225,9 @@ private initializeTemplates(): void {
       },
     ])
 
-    // ADD THIS NEW BLOCK
     this.templates.set('gratitude', [
       {
-        pattern: 'THANK*YOU',
+        pattern: 'THANK*',
         template: 'You\'re welcome! Is there anything else I can help you with?',
         confidence: 0.95,
       },
@@ -239,56 +237,25 @@ private initializeTemplates(): void {
         confidence: 0.9,
       },
       {
-        pattern: 'APPRECIATE*',
-        template: 'Glad I could help! Anything else?',
+        pattern: 'BRILLIANT',
+        template: 'Glad you\'re satisfied!',
         confidence: 0.9,
       },
-      { pattern: 'THX', 
-        template: 'No problem! Anything else?', 
-        confidence: 0.9 
-      },
-      { pattern: 'TY', 
-        template: 'You got it! Anything else?', 
-        confidence: 0.9 
-      },
-      { pattern: 'BRILLIANT', 
-        template: 'Glad you\'re satisfied!', 
-        confidence: 0.9 
-      },
-      { pattern: 'PERFECT', 
-        template: 'Perfect! Let me know if there\'s more I can help with.', 
-        confidence: 0.9 
+      {
+        pattern: 'PERFECT',
+        template: 'Perfect! Let me know if there\'s more I can help with.',
+        confidence: 0.9,
       },
     ])
 
     this.templates.set('error_handling', [
       {
-        pattern: 'EDIT*FAILED',
-        template: 'Edit failed. Check: 1) Network connection 2) Your permissions 3) Refresh page',
-        confidence: 0.85,
-      },
-      {
-        pattern: 'DELETE*FAILED',
-        template: 'Delete failed. Please check: 1) Network connection 2) Your permissions 3) Try refreshing the page',
-        confidence: 0.85,
-      },
-      {
-        pattern: 'UPDATE*FAILED',
-        template: 'Update failed. Try: 1) Check internet connection 2) Verify permissions 3) Refresh the page',
-        confidence: 0.85,
-      },
-      {
-        pattern: 'SAVE*BUTTON*NOT*WORKING',
-        template: 'Save button not working. Please: 1) Check internet connection 2) Clear browser cache 3) Refresh page 4) Verify permissions',
-        confidence: 0.85,
-      },
-      {
-        pattern: 'FAILED*',
+        pattern: 'FAILED',
         template: 'Something went wrong. Please check: 1) Network connection 2) Browser cache 3) Your permissions 4) Refresh the page',
         confidence: 0.8,
       },
       {
-        pattern: 'ERROR*',
+        pattern: 'ERROR',
         template: 'An error occurred. Try: 1) Refresh the page 2) Clear browser cache 3) Check your internet connection 4) Contact support if issue persists',
         confidence: 0.8,
       },
@@ -307,94 +274,75 @@ private initializeTemplates(): void {
       },
     ])
 
-  console.log('[AIML] ===== TEMPLATE INITIALIZATION DEBUG =====')
-  console.log('[AIML] error_handling templates count:', this.templates.get('error_handling')?.length)
-  this.templates.get('error_handling')?.forEach((t, i) => {
-    console.log(`[AIML] [${i}] Pattern: "${t.pattern}" -> ${t.template.substring(0, 50)}...`)
-  })
-  
-  console.log('[AIML] greeting templates count:', this.templates.get('greeting')?.length)
-  console.log('[AIML] gratitude templates count:', this.templates.get('gratitude')?.length)
-  console.log('[AIML] Total intent groups:', this.templates.size)
-  console.log('[AIML] ===== END DEBUG =====')
+    console.log('[AIML] ✅ Templates initialized')
   }
 
 public generateResponse(
-  prediction: { intent: string; confidence: number; entities?: Record<string, unknown> },
-  userMessage: string = "",
-  conversationHistory: Array<{ role: string; content: string }> = []
-): string {
-  const templates = this.templates.get(prediction.intent)
+    prediction: IntentPrediction,
+    userMessage: string = ""
+  ): string {
+    const intent = prediction.intent
+    const templates = this.templates.get(intent) || []
 
-  if (!templates || templates.length === 0) {
-    const fallback = this.templates.get("fallback")
-    return fallback ? fallback[0].template : "How can I help you?"
-  }
+    if (templates.length === 0) {
+      const fallback = this.templates.get("fallback")?.[0]
+      return fallback?.template || "How can I help you?"
+    }
 
-    // ✅ DEBUG LOGGING
-  console.log(`[generateResponse] Intent: "${prediction.intent}"`)
-  console.log(`[generateResponse] Available templates: ${templates.length}`)
-  console.log(`[generateResponse] User message: "${userMessage}"`)
-  console.log(`[generateResponse] User message UPPER: "${userMessage.toUpperCase()}"`)
+    const userMessageUpper = userMessage.toUpperCase().replace(/[^\w\s]/g, ' ')
+    let bestTemplate = templates[0]
+    let bestScore = -1
 
-  // ✅ FIX: SELECT BEST MATCHING TEMPLATE, NOT RANDOM
-  let selectedTemplate = templates[0]
-  let bestMatch = 0
-  const userMessageUpper = userMessage.toUpperCase()
-  
-  for (let i = 0; i < templates.length; i++) {
-    const template = templates[i]
-    // Match keywords in pattern with user message
-    const patternKeywords = template.pattern.split('*').filter(p => p.length > 0)
-    let matchCount = 0
-    
-    console.log(`[generateResponse]   [${i}] Pattern: "${template.pattern}" Keywords: [${patternKeywords.join(', ')}]`)
+    for (const tm of templates) {
+      let score = 0
+      const patternParts = tm.pattern.split('*').filter(p => p.length > 0)
 
-    for (const keyword of patternKeywords) {
-      if (userMessageUpper.includes(keyword)) {
-        matchCount++
-        console.log(`[generateResponse]       ✓ "${keyword}" found`)
-      } else {
-        console.log(`[generateResponse]       ✗ "${keyword}" NOT found`)
+      for (const part of patternParts) {
+        if (userMessageUpper.includes(part)) {
+          score += 30
+        } else {
+          const words = userMessageUpper.split(/\s+/)
+          for (const word of words) {
+            if (word.length < 2) continue
+            const sim = 1 - damerauLevenshteinDistance(word, part) / Math.max(word.length, part.length)
+            if (sim >= getTypoThreshold(Math.min(word.length, part.length))) {
+              score += 15 * sim
+              break
+            }
+          }
+        }
+      }
+
+      // MASSIVE BOOST FOR DELETE + FAILED
+      if (/DELETE|REMOVE|DEL|RM|CLEAR/i.test(userMessage)) score += 100
+      if (/FAILED|ERROR|ISSUE|BUG|NOT WORK/i.test(userMessage)) score += 200
+
+      if (score > bestScore) {
+        bestScore = score
+        bestTemplate = tm
       }
     }
 
-    console.log(`[generateResponse]       matchCount=${matchCount}, bestMatch=${bestMatch}`)
+    let response = bestTemplate.template
 
-    if (matchCount > bestMatch) {
-      bestMatch = matchCount
-      selectedTemplate = template
-      console.log(`[generateResponse]       ✓✓✓ NEW BEST! Selected this template`)
+    // Entity replacement
+    if (prediction.entities) {
+      if (prediction.entities.person) {
+        response = response.replace(/\[PERSON\]/g, String(prediction.entities.person))
+      }
+      if (prediction.entities.email) {
+        response = response.replace(/\[EMAIL\]/g, String(prediction.entities.email))
+      }
     }
+
+    return response
   }
 
-  console.log(`[generateResponse] FINAL SELECTED: Pattern="${selectedTemplate.pattern}"`)
-  console.log(`[generateResponse] FINAL RESPONSE: "${selectedTemplate.template.substring(0, 80)}..."`)
-
-  let response = selectedTemplate.template
-
-  // Enhance with entities
-  if (prediction.entities) {
-    if (prediction.entities.person) {
-      response = response.replace('[PERSON]', String(prediction.entities.person))
-    }
-    if (prediction.entities.email) {
-      response = response.replace('[EMAIL]', String(prediction.entities.email))
-    }
-  }
-
-  const smallTalkIntents = ['greeting', 'gratitude', 'fallback']
-  if (prediction.confidence < 0.15 && !smallTalkIntents.includes(prediction.intent)) {
-    response = `Based on your request: ${response}` 
-  }
-
-  return response
-}
-
-  getTemplate(intent: string): AIMLTemplate | undefined {
+  public getTemplate(intent: string): AIMLTemplate | undefined {
     const templates = this.templates.get(intent)
     return templates?.[0]
   }
 }
 
 export const aimlProcessor = new AIMLProcessor()
+console.log('[AIML] Pre-initialized – templates ready')
